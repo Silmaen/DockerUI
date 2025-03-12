@@ -49,7 +49,7 @@ def get_registry_data(endpoint):
         "Accept": "application/vnd.docker.distribution.manifest.v2+json, application/json"
     }
 
-    print(f"DEBUG: Requesting {url}")
+    # print(f"DEBUG: Requesting {url}")
 
     response = session.get(url, headers=headers)
     response.raise_for_status()
@@ -57,3 +57,57 @@ def get_registry_data(endpoint):
     result = response.json()
     cache.set(cache_key, result, 300)
     return result
+
+
+# ui/registry_client.py - Ajoutez cette fonction
+def get_tag_count(repository):
+    """Get tag count for a single repository"""
+    try:
+        tags_data = get_registry_data(f"{repository}/tags/list")
+        return len(tags_data.get("tags", [])) if tags_data else 0
+    except Exception:
+        return 0
+
+
+def get_all_tag_counts(force_refresh=False):
+    """Get tag counts for all repositories with better error handling and logging"""
+    from django.core.cache import cache
+    import logging
+
+    logger = logging.getLogger(__name__)
+
+    # Check cache first
+    tag_counts = cache.get("repository_tag_counts")
+    if tag_counts is not None and not force_refresh:
+        logger.debug(f"Using cached tag counts: {tag_counts}")
+        return tag_counts
+
+    logger.info("Refreshing repository tag counts")
+    tag_counts = {}
+
+    # Get all repositories
+    data = get_registry_data("_catalog")
+    repositories = data.get("repositories", []) if data else []
+
+    # Process all repositories synchronously (more reliable than threading)
+    for repo in repositories:
+        try:
+            logger.debug(f"Fetching tags for repo: {repo}")
+            tags_data = get_registry_data(f"{repo}/tags/list")
+
+            if tags_data and "tags" in tags_data:
+                tag_counts[repo] = len(tags_data["tags"])
+                logger.debug(f"Found {tag_counts[repo]} tags for {repo}")
+            else:
+                logger.warning(f"No tags found for {repo}")
+                tag_counts[repo] = 0
+
+        except Exception as e:
+            logger.error(f"Error getting tags for {repo}: {str(e)}")
+            tag_counts[repo] = 0
+
+    # Cache for 1 hour
+    cache.set("repository_tag_counts", tag_counts, 3600)
+    logger.info(f"Tag counts updated and cached: {tag_counts}")
+
+    return tag_counts

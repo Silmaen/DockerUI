@@ -27,6 +27,7 @@ document.addEventListener('DOMContentLoaded', function () {
         });
     });
 });
+
 // Copy docker pull command
 document.querySelectorAll('.copy-pull-btn').forEach(button => {
     button.addEventListener('click', function () {
@@ -76,4 +77,51 @@ document.querySelectorAll('.copy-pull-btn').forEach(button => {
         // Remove the textarea
         document.body.removeChild(textarea);
     });
+});
+
+document.addEventListener('DOMContentLoaded', function () {
+    // Get all tag count elements
+    const tagElements = document.querySelectorAll('[data-repo-name]');
+
+    // Only proceed if there are elements to update
+    if (tagElements.length > 0) {
+        // Show loading indicators
+        tagElements.forEach(el => {
+            el.innerHTML = '<small><i class="bi bi-hourglass-split loading-spin"></i></small>';
+            el.classList.add('bg-dark', 'text-white');
+        });
+
+        // Fetch tag counts
+        fetch('/ui/tag-counts/')
+            .then(response => {
+                if (!response.ok) {
+                    throw new Error('Network response was not ok');
+                }
+                return response.json();
+            })
+            .then(data => {
+                tagElements.forEach(element => {
+                    const repoName = element.getAttribute('data-repo-name');
+                    const tagCount = data[repoName] || 0;
+
+                    if (tagCount > 0) {
+                        element.textContent = `${tagCount} tag${tagCount !== 1 ? 's' : ''}`;
+                        element.classList.remove('bg-dark');
+                        element.classList.add('bg-primary');
+                    } else {
+                        element.textContent = '0 tags';
+                        element.classList.remove('bg-dark');
+                        element.classList.add('bg-secondary');
+                    }
+                });
+            })
+            .catch(error => {
+                console.error('Error fetching tag counts:', error);
+                tagElements.forEach(element => {
+                    element.textContent = 'Error';
+                    element.classList.remove('bg-dark');
+                    element.classList.add('bg-danger');
+                });
+            });
+    }
 });

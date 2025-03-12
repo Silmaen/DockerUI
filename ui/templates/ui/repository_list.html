@@ -35,9 +35,12 @@
                     <ul class="list-group list-group-flush">
                         {% for repo in repos %}
                         <li class="list-group-item ps-4 d-flex align-items-center">
-                            <i class="bi bi-archive me-2"></i>
-                            <a href="{% url 'ui:repository_detail' repository=repo.full_name %}" class="repo-name me-auto">{{ repo.name }}</a>
-                            <span class="badge bg-info text-dark">{{ repo.tag_count }} tag{% if repo.tag_count != 1 %}s{% endif %}</span>
+                            <i class="bi bi-boxes me-2"></i>
+                            <a href="{% url 'ui:repository_detail' repository=repo.full_name %}"
+                               class="repo-name me-auto">{{ repo.name }}</a>
+                            <span data-repo-name="{{ repo.full_name }}" class="badge bg-dark text-white tag-count">
+                                <small><i class="bi bi-hourglass-split"></i></small>
+                            </span>
                         </li>
                         {% endfor %}
                     </ul>
@@ -50,8 +53,4 @@
     <p class="text-white">No images found.</p>
     {% endif %}
 </div>
-{% endblock %}
-
-{% block extra_js %}
-<script src="{% static 'ui/js/scripts.js' %}"></script>
 {% endblock %}
