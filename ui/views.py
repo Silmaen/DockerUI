@@ -5,31 +5,12 @@ from datetime import datetime, timezone
 import requests
 import urllib3
 from django.conf import settings
-from django.core.cache import cache
 from django.shortcuts import render
+
+from .registry_client import get_registry_data
 
 # Disable SSL warnings
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
-
-
-def get_registry_data(endpoint):
-    """Get data from Docker Registry API"""
-    cache_key = f"registry_{endpoint}"
-    cached_data = cache.get(cache_key)
-
-    if cached_data:
-        return cached_data, None
-
-    url = f"{settings.REGISTRY_URL}{endpoint}"
-    try:
-        response = requests.get(url, verify=settings.REGISTRY_SSL_VERIFY, timeout=5)
-        if response.status_code == 200:
-            cache.set(cache_key, response.json(), 300)  # Cache for 60 seconds
-            return response.json(), None
-        else:
-            return None, f"API error: {response.status_code} - {response.reason}"
-    except requests.exceptions.RequestException as e:
-        return None, f"Connection error: {e}"
 
 
 def index(request):
@@ -37,7 +18,11 @@ def index(request):
 
 
 def repository_list(request):
-    data, error_message = get_registry_data("/v2/_catalog")
+    data, error_message = None, None
+    try:
+        data = get_registry_data("_catalog")
+    except requests.exceptions.RequestException as e:
+        error_message = str(e)
 
     repositories = data.get("repositories", []) if data else []
     namespaces = {}
@@ -48,7 +33,7 @@ def repository_list(request):
         batch = repositories[i : i + batch_size]
         for repo in batch:
             # Get tag count for repository
-            tag_data, _ = get_registry_data(f"/v2/{repo}/tags/list")
+            tag_data = get_registry_data(f"{repo}/tags/list")
             tag_count = 0
             if tag_data and "tags" in tag_data and tag_data["tags"]:
                 tag_count = len(tag_data["tags"])
@@ -89,9 +74,13 @@ def repository_list(request):
 
 def repository_detail(request, repository):
     # Get list of tags
-    tags_data, error_message = get_registry_data(f"/v2/{repository}/tags/list")
-    tags_with_details = []
+    tags_data, error_message = None, None
+    try:
+        tags_data = get_registry_data(f"{repository}/tags/list")
+    except requests.exceptions.RequestException as e:
+        error_message = str(e)
 
+    tags_with_details = []
     if tags_data and "tags" in tags_data and tags_data["tags"]:
         for tag in tags_data["tags"]:
             # Get manifest for tag

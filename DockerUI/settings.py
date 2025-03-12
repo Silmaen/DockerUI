@@ -9,6 +9,7 @@ https://docs.djangoproject.com/en/5.1/topics/settings/
 For the full list of settings and their values, see
 https://docs.djangoproject.com/en/5.1/ref/settings/
 """
+
 import os
 from pathlib import Path
 
@@ -20,12 +21,12 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 # See https://docs.djangoproject.com/en/5.1/howto/deployment/checklist/
 
 # SECURITY WARNING: keep the secret key used in production secret!
-SECRET_KEY = os.environ.get('SECRET_KEY', 'django-insecure-default-key-for-dev')
+SECRET_KEY = os.environ.get("SECRET_KEY", "django-insecure-default-key-for-dev")
 
 # SECURITY WARNING: don't run with debug turned on in production!
-DEBUG = os.environ.get('DEBUG', 'False').lower() == 'true'
+DEBUG = os.environ.get("DEBUG", "False").lower() == "true"
 
-ALLOWED_HOSTS = ['*']
+ALLOWED_HOSTS = ["*"]
 
 
 # Application definition
@@ -37,12 +38,16 @@ INSTALLED_APPS = [
     "django.contrib.sessions",
     "django.contrib.messages",
     "django.contrib.staticfiles",
-    'ui',
+    "ui",
 ]
 
 # Docker Registry configuration
-REGISTRY_URL = os.environ.get('REGISTRY_URL', 'http://registry:5000')
-REGISTRY_SSL_VERIFY = os.environ.get('REGISTRY_SSL_VERIFY', 'False').lower() == 'true'
+REGISTRY_URL = os.environ.get("REGISTRY_URL", "http://registry:5000")
+REGISTRY_REPO = os.environ.get("REGISTRY_REPO", "")
+REGISTRY_SSL_VERIFY = os.environ.get("REGISTRY_SSL_VERIFY", "False").lower() == "true"
+REGISTRY_USERNAME = os.environ.get("REGISTRY_USERNAME", "")
+REGISTRY_PASSWORD = os.environ.get("REGISTRY_PASSWORD", "")
+REGISTRY_TYPE = os.environ.get("REGISTRY_TYPE", "classic")
 
 MIDDLEWARE = [
     "django.middleware.security.SecurityMiddleware",
