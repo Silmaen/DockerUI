@@ -42,10 +42,11 @@ INSTALLED_APPS = [
 
 # Docker Registry configuration
 REGISTRY_URL = os.environ.get('REGISTRY_URL', 'http://registry:5000')
-REGISTRY_SSL_VERIFY = os.environ.get('REGISTRY_SSL_VERIFY', 'True').lower() == 'true'
+REGISTRY_SSL_VERIFY = os.environ.get('REGISTRY_SSL_VERIFY', 'False').lower() == 'true'
 
 MIDDLEWARE = [
     "django.middleware.security.SecurityMiddleware",
+    "whitenoise.middleware.WhiteNoiseMiddleware",  # Add this line
     "django.contrib.sessions.middleware.SessionMiddleware",
     "django.middleware.common.CommonMiddleware",
     "django.middleware.csrf.CsrfViewMiddleware",
@@ -120,8 +121,15 @@ USE_TZ = True
 # Static files (CSS, JavaScript, Images)
 # https://docs.djangoproject.com/en/5.1/howto/static-files/
 
+# Add WhiteNoise configuration (at the bottom with other static files settings)
+STATICFILES_STORAGE = "whitenoise.storage.CompressedManifestStaticFilesStorage"
+
 STATIC_URL = "static/"
-STATIC_ROOT = "/app/static"
+# Directory for app-specific static files
+STATICFILES_DIRS = [
+    BASE_DIR / "ui" / "static",  # Use a different source directory name
+]
+STATIC_ROOT = BASE_DIR / "staticfiles"
 
 # Default primary key field type
 # https://docs.djangoproject.com/en/5.1/ref/settings/#default-auto-field

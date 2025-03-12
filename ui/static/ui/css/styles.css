@@ -1,0 +1,118 @@
+/* ui/static/ui/css/styles.css */
+/* Base styles */
+body {
+    background-color: #212529;
+}
+
+.navbar {
+    box-shadow: 0 2px 4px rgba(0, 0, 0, .3);
+}
+
+.card {
+    box-shadow: 0 0.125rem 0.25rem rgba(0, 0, 0, .2);
+    background-color: #2c3034;
+    border-color: #495057;
+}
+
+.list-group-item {
+    background-color: #2c3034;
+    border-color: #495057;
+}
+
+a, a:hover, a:focus, a:active {
+    text-decoration: none !important;
+}
+
+a {
+    color: #6ea8fe;
+}
+
+a:hover {
+    color: #9ec5fe;
+}
+
+.bg-light {
+    background-color: #343a40 !important;
+}
+
+/* Repository list styles */
+.chevron-icon {
+    transition: transform 0.3s ease !important;
+    transform: rotate(180deg); /* Start rotated */
+}
+
+/* Make folder text/icon darker with hover effect */
+.folder-header {
+    color: #a0a0a0 !important; /* Darker text by default */
+    transition: color 0.2s ease;
+}
+
+.folder-header:hover {
+    color: #e2e3e5 !important; /* Lighter on hover */
+}
+
+.folder-header i {
+    color: #a0a0a0;
+    transition: color 0.2s ease;
+}
+
+.folder-header:hover i {
+    color: #e2e3e5;
+}
+
+.folder-header[aria-expanded="true"] .chevron-icon {
+    transform: rotate(0deg); /* Rotate back when expanded */
+}
+
+.repo-name {
+    color: #e2e3e5 !important; /* Light gray color */
+}
+
+.list-group-item i {
+    color: #e2e3e5;
+}
+
+/* Button and tag column styling */
+.text-right {
+    text-align: right !important;
+}
+
+/* Copy button styling */
+.copy-pull-btn {
+    color: rgba(255, 255, 255, 0.7); /* More visible text */
+    margin-left: 8px;
+    padding: 6px 8px !important; /* Larger clickable area */
+    font-size: 16px; /* Bigger icon */
+    border: none;
+    background-color: rgba(255, 255, 255, 0.1); /* Visible background */
+    border-radius: 4px;
+    transition: all 0.2s ease;
+    display: inline-block;
+    width: auto;
+    height: auto;
+    cursor: pointer;
+}
+
+.copy-pull-btn:hover {
+    color: #ffffff;
+    background-color: rgba(255, 255, 255, 0.2);
+}
+
+/* Center ARCH column */
+.arch-column {
+    text-align: center !important;
+}
+
+/* Better chevron transition */
+.chevron-icon {
+    transition: transform 0.3s ease !important;
+}
+
+.folder-header[aria-expanded="false"] .chevron-icon {
+    transform: rotate(180deg);
+}
+
+/* Make sure icon is properly aligned */
+.btn-link i {
+    vertical-align: middle;
+}
