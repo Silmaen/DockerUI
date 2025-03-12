@@ -5,11 +5,14 @@ services:
     ports:
       - "8000:8000"
     environment:
+      # registry settings
       - REGISTRY_URL=${REGISTRY_URL}
       - REGISTRY_TYPE=${REGISTRY_TYPE}
       - REGISTRY_REPO=${REGISTRY_REPO}
       - REGISTRY_SSL_VERIFY=${REGISTRY_SSL_VERIFY}
+      # application settings
       - DEBUG=${DEBUG}
       - SECRET_KEY=${SECRET_KEY}
+      # Authentication credentials
       - REGISTRY_USERNAME=${REGISTRY_USERNAME}
       - REGISTRY_PASSWORD=${REGISTRY_PASSWORD}
