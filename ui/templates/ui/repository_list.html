@@ -1,0 +1,42 @@
+{% extends "ui/base.html" %}
+
+{% block content %}
+<div class="container mt-4">
+    <h1 class="mb-4">Docker Images</h1>
+
+    {% if error_message %}
+    <div class="alert alert-danger">
+        {{ error_message }}
+    </div>
+    {% endif %}
+
+    {% if namespaces %}
+    <div class="card">
+        <div class="card-header bg-primary text-white">
+            <h2 class="h5 mb-0">Image Registry</h2>
+        </div>
+        <div class="list-group list-group-flush">
+            {% for namespace, repos in namespaces.items %}
+            <div class="list-group-item p-0">
+                <div class="d-flex align-items-center p-3 bg-light">
+                    <i class="bi bi-folder-fill me-2 text-warning"></i>
+                    <h3 class="h5 mb-0">{{ namespace|default:"Default" }}</h3>
+                    <span class="badge bg-secondary ms-2">{{ repos|length }}</span>
+                </div>
+                <ul class="list-group list-group-flush">
+                    {% for repo in repos %}
+                    <li class="list-group-item ps-4">
+                        <i class="bi bi-archive me-2 text-info"></i>
+                        <a href="{% url 'ui:repository_detail' repository=repo.full_name %}">{{ repo.name }}</a>
+                    </li>
+                    {% endfor %}
+                </ul>
+            </div>
+            {% endfor %}
+        </div>
+    </div>
+    {% else %}
+    <p>No images found.</p>
+    {% endif %}
+</div>
+{% endblock %}

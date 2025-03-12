@@ -1,0 +1,12 @@
+
+services:
+
+  registry-ui:
+    build: .
+    ports:
+      - "8000:8000"
+    environment:
+      - REGISTRY_URL=https://10.94.96.60:5000
+      - REGISTRY_SSL_VERIFY=False
+      - DEBUG=True
+      - SECRET_KEY=change_me_in_production

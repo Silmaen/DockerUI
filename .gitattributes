@@ -1,0 +1,17 @@
+# Set default behavior to maintain LF line endings
+* text=auto eol=lf
+
+# Explicitly declare text files you want to always be normalized
+*.py text eol=lf
+*.md text eol=lf
+*.yml text eol=lf
+*.yaml text eol=lf
+*.html text eol=lf
+*.css text eol=lf
+*.js text eol=lf
+*.json text eol=lf
+*.sh text eol=lf
+
+# Declare binary files that should not be modified
+*.png binary
+*.jpg binary

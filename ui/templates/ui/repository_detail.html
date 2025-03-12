@@ -1,0 +1,51 @@
+{% extends "ui/base.html" %}
+
+{% block content %}
+<div class="container mt-4">
+    <div class="card">
+        <div class="card-header bg-primary text-white d-flex justify-content-between align-items-center">
+            <h1 class="h3 mb-0">
+                <i class="bi bi-archive me-2"></i>
+                {{ repository }}
+            </h1>
+            <a href="{% url 'ui:repository_list' %}" class="btn btn-sm btn-light">
+                <i class="bi bi-arrow-left me-1"></i> Back to Images
+            </a>
+        </div>
+
+        <div class="card-body">
+            {% if error_message %}
+            <div class="alert alert-danger">
+                <i class="bi bi-exclamation-triangle-fill me-2"></i>
+                {{ error_message }}
+            </div>
+            {% endif %}
+
+            <h2 class="h4 mb-3">
+                <i class="bi bi-tags me-2 text-primary"></i>
+                Available Tags
+            </h2>
+
+            {% if tags %}
+                <div class="row">
+                {% for tag in tags %}
+                    <div class="col-md-4 col-lg-3 mb-3">
+                        <div class="card h-100">
+                            <div class="card-body d-flex align-items-center">
+                                <i class="bi bi-tag me-2 text-info"></i>
+                                <span>{{ tag }}</span>
+                            </div>
+                        </div>
+                    </div>
+                {% endfor %}
+                </div>
+            {% else %}
+                <div class="alert alert-warning">
+                    <i class="bi bi-info-circle-fill me-2"></i>
+                    No tags found for this image.
+                </div>
+            {% endif %}
+        </div>
+    </div>
+</div>
+{% endblock %}
