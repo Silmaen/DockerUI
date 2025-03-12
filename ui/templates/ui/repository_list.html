@@ -24,14 +24,14 @@
                      data-bs-toggle="collapse"
                      href="#collapse-{{ namespace|slugify }}"
                      role="button"
-                     aria-expanded="true"
+                     aria-expanded="false"
                      aria-controls="collapse-{{ namespace|slugify }}">
                     <i class="bi bi-folder me-2"></i>
                     <h3 class="h5 mb-0 me-auto">{{ namespace|default:"Default" }}</h3>
                     <span class="badge bg-secondary me-2">{{ repos|length }}</span>
                     <i class="bi bi-chevron-up chevron-icon"></i>
                 </div>
-                <div class="collapse show" id="collapse-{{ namespace|slugify }}">
+                <div class="collapse" id="collapse-{{ namespace|slugify }}">  <!-- Removed "show" class -->
                     <ul class="list-group list-group-flush">
                         {% for repo in repos %}
                         <li class="list-group-item ps-4 d-flex align-items-center">
