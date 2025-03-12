@@ -16,10 +16,6 @@ from .registry_client import get_registry_data, get_all_tag_counts
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 
-def index(request):
-    return render(request, "ui/index.html")
-
-
 def repository_list(request):
     data, error_message = None, None
     try:

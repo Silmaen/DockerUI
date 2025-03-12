@@ -6,7 +6,7 @@ from . import views
 app_name = "ui"
 
 urlpatterns = [
-    path("", views.index, name="index"),
+    path("", views.repository_list, name="index"),
     path("repositories/", views.repository_list, name="repository_list"),
     path("tag-counts/", views.get_tag_counts, name="tag_counts"),
     # Use re_path to handle repository names with slashes
