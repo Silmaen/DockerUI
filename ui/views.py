@@ -28,45 +28,58 @@ def repository_list(request):
         error_message = str(e)
 
     repositories = data.get("repositories", []) if data else []
-    namespaces = {}
 
-    # Process repositories without tag counts initially
+    # Structure namespaces with sub-namespaces
+    sorted_namespaces = {}
+
     for repo in repositories:
-        parts = repo.split("/")
-        if len(parts) > 1:
-            namespace = parts[0]
-            repo_name = "/".join(parts[1:])
-            if namespace not in namespaces:
-                namespaces[namespace] = []
-            namespaces[namespace].append(
-                {
-                    "full_name": repo,
-                    "name": repo_name,
-                    "tag_count": None,
-                }  # None instead of a count
+        # Parse the repository name to extract namespace and sub-namespace
+        parts = repo.split("/")  # Fixed: repo is a string, not a dictionary
+        namespace = parts[0] if parts else "<default>"
+
+        if namespace not in sorted_namespaces:
+            sorted_namespaces[namespace] = {
+                "repos": [],
+                "sub_namespaces": {},
+                "total_count": 0,
+            }
+
+        # Check if this repo has a sub-namespace
+        if len(parts) >= 3:  # Example: namespace/subnamespace/repo
+            sub_namespace = parts[1]
+            if sub_namespace not in sorted_namespaces[namespace]["sub_namespaces"]:
+                sorted_namespaces[namespace]["sub_namespaces"][sub_namespace] = []
+
+            # Create a dictionary with the repo info
+            repo_info = {
+                "full_name": repo,
+                "name": parts[-1],  # Last part is the repo name
+            }
+            sorted_namespaces[namespace]["sub_namespaces"][sub_namespace].append(
+                repo_info
             )
         else:
-            if "default" not in namespaces:
-                namespaces["default"] = []
-            namespaces["default"].append(
-                {"full_name": repo, "name": repo, "tag_count": None}
-            )
+            # Create a dictionary with the repo info
+            repo_info = {
+                "full_name": repo,
+                "name": parts[-1] if len(parts) > 1 else repo,
+            }
+            sorted_namespaces[namespace]["repos"].append(repo_info)
 
-    # Rename 'default' and prepare sorted namespaces
-    if "default" in namespaces:
-        namespaces["<default>"] = namespaces.pop("default")
+        # Increment total count
+        sorted_namespaces[namespace]["total_count"] += 1
 
-    # Create sorted dict with default at the end
-    sorted_namespaces = {}
-    for key in sorted(namespaces.keys()):
-        if key != "<default>":
-            sorted_namespaces[key] = namespaces[key]
+    # Sort the namespaces and sub-namespaces
+    sorted_keys = sorted(sorted_namespaces.keys())
+    ordered_namespaces = {
+        k: sorted_namespaces[k] for k in sorted_keys if k != "<default>"
+    }
 
     # Add default at the end
-    if "<default>" in namespaces:
-        sorted_namespaces["<default>"] = namespaces["<default>"]
+    if "<default>" in sorted_namespaces:
+        ordered_namespaces["<default>"] = sorted_namespaces["<default>"]
 
-    context = {"namespaces": sorted_namespaces, "error_message": error_message}
+    context = {"namespaces": ordered_namespaces, "error_message": error_message}
     return render(request, "ui/repository_list.html", context)
 
 
