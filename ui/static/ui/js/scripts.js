@@ -29,25 +29,64 @@ document.addEventListener('DOMContentLoaded', function () {
 });
 
 // Copy docker pull command
+function copyToClipboard(text) {
+    // Method 1: Try modern clipboard API (works in HTTPS)
+    if (navigator.clipboard && window.isSecureContext) {
+        return navigator.clipboard.writeText(text);
+    } else {
+        // Method 2: Fallback for HTTP using document.execCommand
+        const textArea = document.createElement('textarea');
+        textArea.value = text;
+
+        // Make it invisible but keep it functional
+        textArea.style.position = 'fixed';
+        textArea.style.opacity = '0';
+        textArea.style.left = '-999999px';
+        textArea.style.top = '-999999px';
+
+        document.body.appendChild(textArea);
+        textArea.focus();
+        textArea.select();
+
+        return new Promise((resolve, reject) => {
+            try {
+                const success = document.execCommand('copy');
+                document.body.removeChild(textArea);
+                if (success) {
+                    resolve();
+                } else {
+                    reject('Copy command failed');
+                }
+            } catch (err) {
+                document.body.removeChild(textArea);
+                reject(err);
+            }
+        });
+    }
+}
+
+// Replace your existing click handler with this
 document.addEventListener('DOMContentLoaded', function () {
     document.querySelectorAll('.copy-pull-btn').forEach(button => {
         button.addEventListener('click', function () {
             const command = this.getAttribute('data-command');
-            navigator.clipboard.writeText(command)
-                .then(() => {
-                    // Visual feedback
-                    const originalHTML = this.innerHTML;
-                    this.innerHTML = '<i class="bi bi-check"></i>';
-                    this.classList.add('btn-success');
-                    this.classList.remove('btn-outline-secondary');
+            if (command) {
+                copyToClipboard(command)
+                    .then(() => {
+                        // Visual feedback
+                        const originalHTML = this.innerHTML;
+                        this.innerHTML = '<i class="bi bi-check"></i>';
+                        this.classList.add('btn-success');
+                        this.classList.remove('btn-outline-secondary');
 
-                    setTimeout(() => {
-                        this.innerHTML = originalHTML;
-                        this.classList.remove('btn-success');
-                        this.classList.add('btn-outline-secondary');
-                    }, 1500);
-                })
-                .catch(err => console.error('Copy failed:', err));
+                        setTimeout(() => {
+                            this.innerHTML = originalHTML;
+                            this.classList.remove('btn-success');
+                            this.classList.add('btn-outline-secondary');
+                        }, 1500);
+                    })
+                    .catch(err => console.error('Copy failed:', err));
+            }
         });
     });
 });

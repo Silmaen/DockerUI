@@ -42,7 +42,7 @@ and JFrog Artifactory Docker repositories.
 
 3. Run with Docker Compose:
    ```bash
-   docker-compose up -d
+   docker compose up -d
    ```
 
 4. Access the UI at `http://localhost:8000`
@@ -70,11 +70,11 @@ To upgrade the application, pull the latest changes from the repository and rest
 # get the latest changes
 git pull
 # stop the actual running service
-docker-compose down
+docker compose down
 # remove the old image to force the build of a new one
-docker image rm dockerui_registry-ui
-# start the service again
-docker-compose up -d
+docker image rm dockerui-registry-ui
+# start the service again in daemon mode
+docker compose up -d
 ```
 
 ## Configuration
