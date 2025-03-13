@@ -46,13 +46,14 @@
                         <td>{{ tag.size }}</td>
                         <td class="text-right">
                             {{ tag.name }}
-                            <button class="copy-pull-btn"
+                            <button class="copy-pull-btn btn btn-outline-secondary btn-sm"
                                     data-repo="{{ repository }}"
                                     data-tag="{{ tag.name }}"
                                     data-registry="{{ registry_url }}"
                                     title="Copy docker pull command"
                                     data-bs-toggle="tooltip"
-                                    data-bs-placement="top">
+                                    data-bs-placement="top"
+                                    data-command="{{ pull_command_base }}:{{ tag.name }}">
                                 <i class="bi bi-copy"></i>
                             </button>
                         </td>

@@ -191,11 +191,30 @@ def repository_detail(request, repository):
     if registry_url.endswith("/"):
         registry_url = registry_url[:-1]
 
+    # Create pull command base with proper formatting based on configuration
+    registry_repo = getattr(settings, "REGISTRY_REPO", None)
+    registry_type = getattr(settings, "REGISTRY_TYPE", "standard")
+
+    # Build the repository path based on configuration
+    if registry_repo and registry_type.lower() != "artifactory":
+        # Standard registry with repo prefix
+        repo_path = f"{registry_repo}/{repository}"
+    elif registry_type.lower() == "artifactory" and registry_repo:
+        # For Artifactory, the structure might be different
+        repo_path = f"{registry_repo}/{repository}"
+    else:
+        # Standard registry without repo prefix
+        repo_path = repository
+
+    # Create the full pull command base (without tag)
+    pull_command_base = f"docker pull {registry_url}/{repo_path}"
+
     context = {
         "repository": repository,
         "tags": tags_with_details,
         "error_message": error_message,
         "registry_url": registry_url,
+        "pull_command_base": pull_command_base,
     }
     return render(request, "ui/repository_detail.html", context)
 

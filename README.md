@@ -62,6 +62,21 @@ and JFrog Artifactory Docker repositories.
    python manage.py runserver
    ```
 
+### Upgrading
+
+To upgrade the application, pull the latest changes from the repository and restart the application:
+
+```bash
+# get the latest changes
+git pull
+# stop the actual running service
+docker-compose down
+# remove the old image to force the build of a new one
+docker image rm dockerui_registry-ui
+# start the service again
+docker-compose up -d
+```
+
 ## Configuration
 
 ### Environment Variables
