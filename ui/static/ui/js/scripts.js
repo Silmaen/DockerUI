@@ -29,53 +29,26 @@ document.addEventListener('DOMContentLoaded', function () {
 });
 
 // Copy docker pull command
-document.querySelectorAll('.copy-pull-btn').forEach(button => {
-    button.addEventListener('click', function () {
-        // Get repository and tag from data attributes
-        const registry = this.getAttribute('data-registry') || '';
-        const repo = this.getAttribute('data-repo');
-        const tag = this.getAttribute('data-tag');
+document.addEventListener('DOMContentLoaded', function () {
+    document.querySelectorAll('.copy-pull-btn').forEach(button => {
+        button.addEventListener('click', function () {
+            const command = this.getAttribute('data-command');
+            navigator.clipboard.writeText(command)
+                .then(() => {
+                    // Visual feedback
+                    const originalHTML = this.innerHTML;
+                    this.innerHTML = '<i class="bi bi-check"></i>';
+                    this.classList.add('btn-success');
+                    this.classList.remove('btn-outline-secondary');
 
-        // Properly format the pull command with the registry
-        let pullCommand = '';
-        if (registry && registry.trim() !== '') {
-            pullCommand = `docker pull ${registry}/${repo}:${tag}`;
-        } else {
-            pullCommand = `docker pull ${repo}:${tag}`;
-        }
-
-        // Create a textarea element (works better than input for clipboard operations)
-        const textarea = document.createElement('textarea');
-        textarea.value = pullCommand;
-
-        // Make it part of the document but visually hidden
-        textarea.style.position = 'fixed';
-        textarea.style.opacity = '0';
-        document.body.appendChild(textarea);
-
-        // Select the text and copy to clipboard
-        textarea.focus();
-        textarea.select();
-
-        try {
-            // Execute the copy command
-            const successful = document.execCommand('copy');
-
-            // Visual feedback
-            const icon = this.querySelector('i');
-            if (successful) {
-                const originalClass = icon.className;
-                icon.className = 'far fa-check-circle';
-                setTimeout(() => {
-                    icon.className = originalClass;
-                }, 2000);
-            }
-        } catch (err) {
-            console.error('Failed to copy text: ', err);
-        }
-
-        // Remove the textarea
-        document.body.removeChild(textarea);
+                    setTimeout(() => {
+                        this.innerHTML = originalHTML;
+                        this.classList.remove('btn-success');
+                        this.classList.add('btn-outline-secondary');
+                    }, 1500);
+                })
+                .catch(err => console.error('Copy failed:', err));
+        });
     });
 });
 
