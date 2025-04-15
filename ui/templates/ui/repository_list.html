@@ -44,20 +44,55 @@
                                  aria-controls="collapse-{{ namespace|slugify }}-{{ sub_namespace|slugify }}">
                                 <i class="bi bi-folder me-2"></i>
                                 <h4 class="h6 mb-0 me-auto">{{ sub_namespace }}</h4>
-                                <span class="badge bg-secondary me-2">{{ sub_data|length }}</span>
+                                <span class="badge bg-secondary me-2">{{ sub_data.total_count }}</span>
                                 <i class="bi bi-chevron-up chevron-icon"></i>
                             </div>
                             <div class="collapse" id="collapse-{{ namespace|slugify }}-{{ sub_namespace|slugify }}">
                                 <ul class="list-group list-group-flush">
-                                    {% for repo in sub_data %}
+                                    {% if sub_data.sub_namespaces %}
+                                    <!-- Afficher les sous-sous-namespaces de façon récursive -->
+                                    {% for subsub_namespace, subsub_data in sub_data.sub_namespaces.items %}
+                                    <li class="list-group-item p-0">
+                                        <div class="d-flex align-items-center p-3 bg-dark bg-opacity-10 folder-header ps-6"
+                                             data-bs-toggle="collapse"
+                                             href="#collapse-{{ namespace|slugify }}-{{ sub_namespace|slugify }}-{{ subsub_namespace|slugify }}"
+                                             role="button"
+                                             aria-expanded="false"
+                                             aria-controls="collapse-{{ namespace|slugify }}-{{ sub_namespace|slugify }}-{{ subsub_namespace|slugify }}">
+                                            <i class="bi bi-folder me-2"></i>
+                                            <h5 class="h6 mb-0 me-auto">{{ subsub_namespace }}</h5>
+                                            <span class="badge bg-secondary me-2">{{ subsub_data.total_count }}</span>
+                                            <i class="bi bi-chevron-up chevron-icon"></i>
+                                        </div>
+                                        <div class="collapse"
+                                             id="collapse-{{ namespace|slugify }}-{{ sub_namespace|slugify }}-{{ subsub_namespace|slugify }}">
+                                            <ul class="list-group list-group-flush">
+                                                {% for repo in subsub_data.repos %}
+                                                <li class="list-group-item ps-7 d-flex align-items-center">
+                                                    <i class="bi bi-boxes me-2"></i>
+                                                    <a href="{% url 'ui:repository_detail' repository=repo.full_name %}"
+                                                       class="repo-name me-auto">{{ repo.name }}</a>
+                                                    <span data-repo-name="{{ repo.full_name }}"
+                                                          class="badge bg-dark text-white tag-count">
+                                                        <small><i class="bi bi-hourglass-split"></i></small>
+                                                    </span>
+                                                </li>
+                                                {% endfor %}
+                                            </ul>
+                                        </div>
+                                    </li>
+                                    {% endfor %}
+                                    {% endif %}
+
+                                    {% for repo in sub_data.repos %}
                                     <li class="list-group-item ps-6 d-flex align-items-center">
                                         <i class="bi bi-boxes me-2"></i>
                                         <a href="{% url 'ui:repository_detail' repository=repo.full_name %}"
                                            class="repo-name me-auto">{{ repo.name }}</a>
                                         <span data-repo-name="{{ repo.full_name }}"
                                               class="badge bg-dark text-white tag-count">
-                                                <small><i class="bi bi-hourglass-split"></i></small>
-                                            </span>
+                                            <small><i class="bi bi-hourglass-split"></i></small>
+                                        </span>
                                     </li>
                                     {% endfor %}
                                 </ul>

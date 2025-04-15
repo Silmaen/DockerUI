@@ -25,55 +25,94 @@ def repository_list(request):
 
     repositories = data.get("repositories", []) if data else []
 
-    # Structure namespaces with sub-namespaces
-    sorted_namespaces = {}
+    # Structure namespaces avec hiérarchie récursive
+    namespaces = {}
 
     for repo in repositories:
-        # Parse the repository name to extract namespace and sub-namespace
-        parts = repo.split("/")  # Fixed: repo is a string, not a dictionary
+        # Ignorer les repositories vides
+        if not repo:
+            continue
+
+        parts = repo.split("/")
+
+        # Déterminer le namespace principal
         namespace = parts[0] if parts else "<default>"
 
-        if namespace not in sorted_namespaces:
-            sorted_namespaces[namespace] = {
+        # Ignorer les namespaces vides
+        if not namespace:
+            continue
+
+        if namespace not in namespaces:
+            namespaces[namespace] = {
                 "repos": [],
                 "sub_namespaces": {},
                 "total_count": 0,
             }
 
-        # Check if this repo has a sub-namespace
-        if len(parts) >= 3:  # Example: namespace/subnamespace/repo
-            sub_namespace = parts[1]
-            if sub_namespace not in sorted_namespaces[namespace]["sub_namespaces"]:
-                sorted_namespaces[namespace]["sub_namespaces"][sub_namespace] = []
+        # Gérer les repositories avec ou sans sous-namespaces
+        current_level = namespaces[namespace]
 
-            # Create a dictionary with the repo info
-            repo_info = {
-                "full_name": repo,
-                "name": parts[-1],  # Last part is the repo name
-            }
-            sorted_namespaces[namespace]["sub_namespaces"][sub_namespace].append(
-                repo_info
-            )
+        if len(parts) == 1:
+            # Repo sans namespace
+            repo_info = {"full_name": repo, "name": repo}
+            current_level["repos"].append(repo_info)
+        elif len(parts) == 2:
+            # Repo avec un seul namespace
+            repo_info = {"full_name": repo, "name": parts[1]}
+            current_level["repos"].append(repo_info)
         else:
-            # Create a dictionary with the repo info
-            repo_info = {
-                "full_name": repo,
-                "name": parts[-1] if len(parts) > 1 else repo,
-            }
-            sorted_namespaces[namespace]["repos"].append(repo_info)
+            # Repo avec des sous-namespaces multiples
+            # Naviguer et créer la structure récursive de sous-namespaces
+            valid_path = True  # Pour vérifier si tous les segments sont valides
+            for i in range(1, len(parts) - 1):
+                sub_namespace = parts[i]
 
-        # Increment total count
-        sorted_namespaces[namespace]["total_count"] += 1
+                # Ignorer les sous-namespaces vides
+                if not sub_namespace:
+                    valid_path = False
+                    break
 
-    # Sort the namespaces and sub-namespaces
-    sorted_keys = sorted(sorted_namespaces.keys())
-    ordered_namespaces = {
-        k: sorted_namespaces[k] for k in sorted_keys if k != "<default>"
-    }
+                if sub_namespace not in current_level["sub_namespaces"]:
+                    current_level["sub_namespaces"][sub_namespace] = {
+                        "repos": [],
+                        "sub_namespaces": {},
+                        "total_count": 0,
+                    }
+                current_level = current_level["sub_namespaces"][sub_namespace]
+                # Incrémenter le compteur à chaque niveau
+                current_level["total_count"] += 1
 
-    # Add default at the end
-    if "<default>" in sorted_namespaces:
-        ordered_namespaces["<default>"] = sorted_namespaces["<default>"]
+            # Ajouter le repo au niveau actuel seulement si le chemin est valide
+            if valid_path and parts[-1]:  # Vérifier que le nom du repo n'est pas vide
+                repo_info = {"full_name": repo, "name": parts[-1]}
+                current_level["repos"].append(repo_info)
+
+                # Incrémenter le compteur total du namespace principal
+                namespaces[namespace]["total_count"] += 1
+
+    # Trier les namespaces et sous-namespaces
+    sorted_keys = sorted(namespaces.keys())
+    ordered_namespaces = {k: namespaces[k] for k in sorted_keys if k != "<default>"}
+
+    # Fonction récursive pour trier les sous-namespaces
+    def sort_sub_namespaces(ns_dict):
+        if not ns_dict["sub_namespaces"]:
+            return ns_dict
+
+        sorted_subs = {}
+        for k in sorted(ns_dict["sub_namespaces"].keys()):
+            sorted_subs[k] = sort_sub_namespaces(ns_dict["sub_namespaces"][k])
+
+        ns_dict["sub_namespaces"] = sorted_subs
+        return ns_dict
+
+    # Appliquer le tri récursif à tous les namespaces
+    for k in ordered_namespaces:
+        ordered_namespaces[k] = sort_sub_namespaces(ordered_namespaces[k])
+
+    # Ajouter default à la fin
+    if "<default>" in namespaces:
+        ordered_namespaces["<default>"] = namespaces["<default>"]
 
     context = {"namespaces": ordered_namespaces, "error_message": error_message}
     return render(request, "ui/repository_list.html", context)
