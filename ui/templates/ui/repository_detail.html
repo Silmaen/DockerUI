@@ -60,7 +60,7 @@
                         <td class="arch-column">
                             {% for arch in tag.architectures %}
                             <div class="mb-1">
-                                <span class="badge bg-secondary rounded-pill">{{ arch }}</span>
+                                <span class="badge rounded-pill arch-badge arch-{{ arch|lower }}">{{ arch }}</span>
                             </div>
                             {% endfor %}
                         </td>
