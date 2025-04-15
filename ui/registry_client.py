@@ -1,10 +1,17 @@
 # registry_client.py
+import logging
+
 import requests
 from django.conf import settings
 from django.core.cache import cache
 
+logger = logging.getLogger(__name__)
+
 
 def get_registry_session():
+    """
+    Create and configure a session for interacting with the Docker Registry API.
+    """
     session = requests.Session()
     session.verify = settings.REGISTRY_SSL_VERIFY
 
@@ -46,12 +53,23 @@ def get_registry_data(endpoint):
 
     # Add Accept headers for both manifest types
     headers = {
-        "Accept": "application/vnd.docker.distribution.manifest.v2+json, application/json"
+        "Accept": (
+            "application/vnd.docker.distribution.manifest.list.v2+json, "
+            "application/vnd.docker.distribution.manifest.v2+json, "
+            "application/vnd.docker.distribution.manifest.v1+json, "
+            "application/vnd.oci.image.manifest.v1+json, "
+            "application/vnd.oci.image.index.v1+json, "
+            "application/json"
+        )
     }
 
-    # print(f"DEBUG: Requesting {url}")
+    # logger.debug(f"Requesting {url}")
 
     response = session.get(url, headers=headers)
+    if response.status_code == 404:
+        logger.warning(f"Resource not found: {url}")
+        return None
+
     response.raise_for_status()
 
     result = response.json()
@@ -65,16 +83,13 @@ def get_tag_count(repository):
     try:
         tags_data = get_registry_data(f"{repository}/tags/list")
         return len(tags_data.get("tags", [])) if tags_data else 0
-    except Exception:
+    except Exception as e:
+        logger.error(f"Error getting tags for {repository}: {str(e)}")
         return 0
 
 
 def get_all_tag_counts(force_refresh=False):
     """Get tag counts for all repositories with better error handling and logging"""
-    from django.core.cache import cache
-    import logging
-
-    logger = logging.getLogger(__name__)
 
     # Check cache first
     tag_counts = cache.get("repository_tag_counts")
