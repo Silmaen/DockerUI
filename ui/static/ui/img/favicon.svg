@@ -1,0 +1,20 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="50 50 430 430" width="100" height="100">
+    <!-- Grande tête de chouette en arrière-plan, décalée vers le haut et la gauche -->
+    <g>
+        <!-- Face ronde caractéristique des chouettes -->
+        <circle cx="200" cy="200" r="90" fill="#044d75"/>
+
+        <!-- Yeux -->
+        <circle cx="165" cy="190" r="25" fill="white"/>
+        <circle cx="235" cy="190" r="25" fill="white"/>
+        <circle cx="165" cy="190" r="12" fill="#333"/>
+        <circle cx="235" cy="190" r="12" fill="#333"/>
+
+        <!-- Bec -->
+        <path d="M187 220h26L200 245z" fill="#ffa500"/>
+    </g>
+
+    <!-- Corps de la baleine Docker (au premier plan) -->
+    <path fill="#066da5"
+          d="m472 228s-18-17-55-11c-4-29-35-46-35-46s-29 35-8 74c-6 3-16 7-31 7H68c-5 19-5 145 133 145 99 0 173-46 208-130 52 4 63-39 63-39"/>
+</svg>

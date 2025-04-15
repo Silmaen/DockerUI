@@ -154,3 +154,44 @@ a:hover {
     animation: spin 2s linear infinite;
     display: inline-block;
 }
+
+.arch-badge {
+    font-weight: 500;
+}
+
+.arch-amd64 {
+    background-color: #0d6efd;
+}
+
+.arch-arm64, .arch-arm64v8 {
+    background-color: #6f42c1;
+}
+
+.arch-arm, .arch-armv7 {
+    background-color: #d63384;
+}
+
+.arch-386 {
+    background-color: #fd7e14;
+}
+
+.arch-s390x {
+    background-color: #20c997;
+}
+
+.arch-ppc64le {
+    background-color: #198754;
+}
+
+.arch-mips {
+    background-color: #0dcaf0;
+}
+
+.arch-unknown {
+    background-color: #6c757d;
+}
+
+/* Pour toute autre architecture, couleur par défaut */
+.arch-badge:not(.arch-amd64):not(.arch-arm64):not(.arch-arm64v8):not(.arch-arm):not(.arch-armv7):not(.arch-386):not(.arch-s390x):not(.arch-ppc64le):not(.arch-mips):not(.arch-unknown) {
+    background-color: #6c757d;
+}
