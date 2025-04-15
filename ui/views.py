@@ -90,44 +90,76 @@ def repository_detail(request, repository):
     tags_with_details = []
     if tags_data and "tags" in tags_data and tags_data["tags"]:
         for tag in tags_data["tags"]:
-            # Get manifest for tag
             try:
                 manifest_data = get_registry_data(f"{repository}/manifests/{tag}")
-                # Initialize values
                 created_date = None
                 size = 0
-                arch = "Unknown"
+                architectures = []
 
-                # Extract creation date and arch from image config
-                if (
-                    manifest_data
-                    and "config" in manifest_data
-                    and "digest" in manifest_data["config"]
-                ):
-                    config_data = get_registry_data(
-                        f"{repository}/blobs/{manifest_data['config']['digest']}"
-                    )
-                    if "created" in config_data:
-                        created_date = config_data["created"]
-                    if "architecture" in config_data:
-                        arch = config_data["architecture"]
+                # Check if the manifest is multi-arch
+                if manifest_data and manifest_data.get("manifests"):
+                    for entry in manifest_data.get("manifests", []):
+                        platform = entry.get("platform", {})
+                        arch = platform.get("architecture", "unknown")
+                        if (
+                            arch != "unknown"
+                            and not entry.get("annotations", {}).get(
+                                "vnd.docker.reference.type"
+                            )
+                            == "attestation-manifest"
+                        ):
+                            architectures.append(arch)
 
-                # Calculate size
-                if manifest_data and "layers" in manifest_data:
-                    for layer in manifest_data["layers"]:
-                        if "size" in layer:
-                            size += layer["size"]
+                            # Récupérer les détails du premier manifeste valide trouvé
+                            if created_date is None:
+                                digest = entry.get("digest", "")
+                                # D'abord récupérer le manifeste spécifique à l'architecture
+                                arch_manifest = get_registry_data(
+                                    f"{repository}/manifests/{digest}"
+                                )
+                                if (
+                                    arch_manifest
+                                    and "config" in arch_manifest
+                                    and "digest" in arch_manifest.get("config", {})
+                                ):
+                                    # Ensuite récupérer la configuration avec le bon digest
+                                    config_digest = arch_manifest["config"]["digest"]
+                                    config_data = get_registry_data(
+                                        f"{repository}/blobs/{config_digest}"
+                                    )
+                                    if config_data and "created" in config_data:
+                                        created_date = config_data["created"]
+
+                                    # Calculer la taille
+                                    if "layers" in arch_manifest:
+                                        for layer in arch_manifest.get("layers", []):
+                                            size += layer.get("size", 0)
+                else:
+                    # Single architecture manifest
+                    if (
+                        manifest_data
+                        and "config" in manifest_data
+                        and "digest" in manifest_data["config"]
+                    ):
+                        config_data = get_registry_data(
+                            f"{repository}/blobs/{manifest_data['config']['digest']}"
+                        )
+                        if "created" in config_data:
+                            created_date = config_data["created"]
+                        if "architecture" in config_data:
+                            architectures.append(config_data["architecture"])
+
+                    if manifest_data and "layers" in manifest_data:
+                        for layer in manifest_data["layers"]:
+                            size += layer.get("size", 0)
 
                 # Format age
                 age = "Unknown"
                 if created_date:
                     try:
-                        # Truncate nanoseconds to microseconds if needed
                         if "." in created_date:
                             parts = created_date.split(".")
-                            microseconds = parts[1].replace("Z", "")[
-                                :6
-                            ]  # Take only first 6 digits
+                            microseconds = parts[1].replace("Z", "")[:6]
                             created_date = f"{parts[0]}.{microseconds}Z"
 
                         created_datetime = datetime.fromisoformat(
@@ -136,8 +168,6 @@ def repository_detail(request, repository):
                         age = format_time_difference(created_datetime)
                     except Exception as e:
                         print(f"Date parsing error: {e}, value: '{created_date}'")
-                        # Handle invalid date format
-                        pass
 
                 size_str = format_size(size) if size else "Unknown"
 
@@ -146,34 +176,20 @@ def repository_detail(request, repository):
                         "name": tag,
                         "created": created_date,
                         "age": age,
-                        "arch": arch,
+                        "architectures": architectures or ["Unknown"],
                         "size": size_str,
                         "size_bytes": size,
                     }
                 )
-                grouped_tags = {}
-                for tag in tags_with_details:
-                    if tag["name"] not in grouped_tags:
-                        # Create a new entry with all original fields
-                        grouped_tags[tag["name"]] = tag.copy()
-                        # Initialize architectures as a list with the current architecture
-                        grouped_tags[tag["name"]]["architectures"] = [tag["arch"]]
-                    else:
-                        # Add this architecture to the existing tag entry
-                        grouped_tags[tag["name"]]["architectures"].append(tag["arch"])
-
-                # Convert back to a list for the template
-                tags_with_details = list(grouped_tags.values())
 
             except Exception as e:
                 print(f"Error retrieving manifest for {tag}: {e}")
-                # Add tag with minimal info on error
                 tags_with_details.append(
                     {
                         "name": tag,
                         "created": None,
                         "age": "Error",
-                        "arch": "Error",
+                        "architectures": ["Error"],
                         "size": "Error",
                         "size_bytes": 0,
                     }
@@ -191,22 +207,16 @@ def repository_detail(request, repository):
     if registry_url.endswith("/"):
         registry_url = registry_url[:-1]
 
-    # Create pull command base with proper formatting based on configuration
     registry_repo = getattr(settings, "REGISTRY_REPO", None)
     registry_type = getattr(settings, "REGISTRY_TYPE", "standard")
 
-    # Build the repository path based on configuration
     if registry_repo and registry_type.lower() != "artifactory":
-        # Standard registry with repo prefix
         repo_path = f"{registry_repo}/{repository}"
     elif registry_type.lower() == "artifactory" and registry_repo:
-        # For Artifactory, the structure might be different
         repo_path = f"{registry_repo}/{repository}"
     else:
-        # Standard registry without repo prefix
         repo_path = repository
 
-    # Create the full pull command base (without tag)
     pull_command_base = f"docker pull {registry_url}/{repo_path}"
 
     context = {
