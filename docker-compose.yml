@@ -18,3 +18,5 @@ services:
       # Authentication credentials
       - REGISTRY_USERNAME=${REGISTRY_USERNAME}
       - REGISTRY_PASSWORD=${REGISTRY_PASSWORD}
+      # Admin mode
+      - ADMIN_PASSWORD=${ADMIN_PASSWORD}

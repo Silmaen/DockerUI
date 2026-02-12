@@ -1,16 +1,26 @@
 # ui/views.py
 
+import logging
 from datetime import datetime
 
 import requests
 import urllib3
 from django.conf import settings
-from django.http import JsonResponse
-from django.shortcuts import render
-from django.views.decorators.http import require_GET
+from django.contrib import messages
+from django.http import JsonResponse, HttpResponseForbidden
+from django.shortcuts import render, redirect
+from django.views.decorators.http import require_GET, require_POST
 
 from .formating import format_time_difference, format_size
-from .registry_client import get_registry_data, get_all_tag_counts
+from .registry_client import (
+    get_registry_data,
+    get_all_tag_counts,
+    get_manifest_digest,
+    delete_manifest,
+    invalidate_cache,
+)
+
+logger = logging.getLogger(__name__)
 
 # Disable SSL warnings
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
@@ -270,3 +280,94 @@ def get_tag_counts(request):
     force = request.GET.get("force", "").lower() == "true"
     tag_counts = get_all_tag_counts(force_refresh=force)
     return JsonResponse(tag_counts)
+
+
+def admin_login(request):
+    """Admin login view."""
+    if not settings.ADMIN_PASSWORD:
+        return redirect("ui:repository_list")
+
+    if request.method == "POST":
+        password = request.POST.get("password", "")
+        if password == settings.ADMIN_PASSWORD:
+            request.session["is_admin"] = True
+            messages.success(request, "Admin mode activated.")
+            return redirect("ui:repository_list")
+        else:
+            messages.error(request, "Invalid password.")
+
+    return render(request, "ui/admin_login.html")
+
+
+@require_POST
+def admin_logout(request):
+    """Admin logout view."""
+    request.session.pop("is_admin", None)
+    messages.info(request, "Admin mode deactivated.")
+    return redirect("ui:repository_list")
+
+
+@require_POST
+def delete_tag(request, repository):
+    """Delete a single tag from a repository."""
+    if not request.session.get("is_admin", False):
+        return HttpResponseForbidden("Admin access required.")
+
+    tag = request.POST.get("tag", "")
+    if not tag:
+        return JsonResponse({"success": False, "error": "No tag specified."}, status=400)
+
+    try:
+        digest = get_manifest_digest(repository, tag)
+        if not digest:
+            return JsonResponse({"success": False, "error": "Could not resolve digest."}, status=404)
+        delete_manifest(repository, digest)
+        invalidate_cache(repository)
+        return JsonResponse({"success": True, "tag": tag})
+    except requests.exceptions.HTTPError as e:
+        if e.response is not None and e.response.status_code == 405:
+            return JsonResponse(
+                {"success": False, "error": "Delete is not enabled on the registry. Set REGISTRY_STORAGE_DELETE_ENABLED=true."},
+                status=405,
+            )
+        logger.error(f"Error deleting tag {tag} from {repository}: {e}")
+        return JsonResponse({"success": False, "error": str(e)}, status=500)
+    except Exception as e:
+        logger.error(f"Error deleting tag {tag} from {repository}: {e}")
+        return JsonResponse({"success": False, "error": str(e)}, status=500)
+
+
+@require_POST
+def delete_repository(request, repository):
+    """Delete all tags from a repository."""
+    if not request.session.get("is_admin", False):
+        return HttpResponseForbidden("Admin access required.")
+
+    try:
+        tags_data = get_registry_data(f"{repository}/tags/list")
+        tags = tags_data.get("tags", []) if tags_data else []
+    except Exception as e:
+        return JsonResponse({"success": False, "error": str(e)}, status=500)
+
+    deleted = []
+    errors = []
+    for tag in tags:
+        try:
+            digest = get_manifest_digest(repository, tag)
+            if digest:
+                delete_manifest(repository, digest)
+                deleted.append(tag)
+            else:
+                errors.append({"tag": tag, "error": "Could not resolve digest."})
+        except requests.exceptions.HTTPError as e:
+            if e.response is not None and e.response.status_code == 405:
+                errors.append({"tag": tag, "error": "Delete not enabled on registry."})
+            else:
+                errors.append({"tag": tag, "error": str(e)})
+        except Exception as e:
+            errors.append({"tag": tag, "error": str(e)})
+
+    invalidate_cache(repository)
+
+    status_code = 207 if errors and deleted else (200 if not errors else 500)
+    return JsonResponse({"success": len(errors) == 0, "deleted": deleted, "errors": errors}, status=status_code)

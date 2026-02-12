@@ -1,6 +1,8 @@
 # ui/context_processors.py
 from pathlib import Path
 
+from django.conf import settings as django_settings
+
 
 def version_context(request):
     """Add version to the template context."""
@@ -11,4 +13,8 @@ def version_context(request):
     except Exception:
         version = "unknown"
 
-    return {"app_version": version}
+    return {
+        "app_version": version,
+        "is_admin": request.session.get("is_admin", False),
+        "admin_enabled": bool(django_settings.ADMIN_PASSWORD),
+    }

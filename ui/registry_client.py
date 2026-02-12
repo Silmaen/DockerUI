@@ -126,3 +126,47 @@ def get_all_tag_counts(force_refresh=False):
     logger.info(f"Tag counts updated and cached: {tag_counts}")
 
     return tag_counts
+
+
+def _build_registry_url(endpoint):
+    """Build the full registry URL for a given endpoint."""
+    is_artifactory = settings.REGISTRY_TYPE.lower() == "artifactory"
+    if is_artifactory:
+        return f"{settings.REGISTRY_URL}/artifactory/api/docker/{settings.REGISTRY_REPO}/v2/{endpoint}"
+    elif settings.REGISTRY_REPO:
+        return f"{settings.REGISTRY_URL}/v2/{settings.REGISTRY_REPO}/{endpoint}"
+    else:
+        return f"{settings.REGISTRY_URL}/v2/{endpoint}"
+
+
+def get_manifest_digest(repository, tag):
+    """Get the Docker-Content-Digest for a tag via HEAD request."""
+    session = get_registry_session()
+    url = _build_registry_url(f"{repository}/manifests/{tag}")
+    headers = {
+        "Accept": (
+            "application/vnd.docker.distribution.manifest.list.v2+json, "
+            "application/vnd.docker.distribution.manifest.v2+json, "
+            "application/vnd.oci.image.manifest.v1+json, "
+            "application/vnd.oci.image.index.v1+json"
+        )
+    }
+    response = session.head(url, headers=headers, timeout=30)
+    response.raise_for_status()
+    return response.headers.get("Docker-Content-Digest")
+
+
+def delete_manifest(repository, digest):
+    """Delete a manifest by digest."""
+    session = get_registry_session()
+    url = _build_registry_url(f"{repository}/manifests/{digest}")
+    response = session.delete(url, timeout=30)
+    response.raise_for_status()
+    return True
+
+
+def invalidate_cache(repository):
+    """Purge cache keys after a mutation."""
+    cache.delete(f"registry_{repository}/tags/list")
+    cache.delete("registry__catalog")
+    cache.delete("repository_tag_counts")
