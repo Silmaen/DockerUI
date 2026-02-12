@@ -49,6 +49,9 @@ REGISTRY_USERNAME = os.environ.get("REGISTRY_USERNAME", "")
 REGISTRY_PASSWORD = os.environ.get("REGISTRY_PASSWORD", "")
 REGISTRY_TYPE = os.environ.get("REGISTRY_TYPE", "classic")
 
+# Admin mode configuration
+ADMIN_PASSWORD = os.environ.get("ADMIN_PASSWORD", "")
+
 MIDDLEWARE = [
     "django.middleware.security.SecurityMiddleware",
     "whitenoise.middleware.WhiteNoiseMiddleware",  # Add this line

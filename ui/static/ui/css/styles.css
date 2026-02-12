@@ -195,3 +195,27 @@ a:hover {
 .arch-badge:not(.arch-amd64):not(.arch-arm64):not(.arch-arm64v8):not(.arch-arm):not(.arch-armv7):not(.arch-386):not(.arch-s390x):not(.arch-ppc64le):not(.arch-mips):not(.arch-unknown) {
     background-color: #6c757d;
 }
+
+/* Delete buttons — outlined red, white on red on hover */
+.delete-tag-btn,
+.delete-repo-btn {
+    color: #dc3545;
+    border: 1px solid #dc3545;
+    background: transparent;
+    padding: 2px 6px;
+    font-size: 14px;
+    border-radius: 4px;
+    transition: all 0.2s ease;
+}
+
+.delete-tag-btn i,
+.delete-repo-btn i {
+    color: inherit;
+}
+
+.delete-tag-btn:hover,
+.delete-repo-btn:hover {
+    color: #fff;
+    background-color: #dc3545;
+    border-color: #dc3545;
+}

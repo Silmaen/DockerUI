@@ -153,6 +153,150 @@ document.addEventListener('DOMContentLoaded', function () {
         });
 });
 
+// --- Admin delete logic ---
+function getCsrfToken() {
+    const cookie = document.cookie.split('; ').find(row => row.startsWith('csrftoken='));
+    return cookie ? cookie.split('=')[1] : '';
+}
+
+document.addEventListener('DOMContentLoaded', function () {
+    let pendingDeleteTag = null;
+    let pendingDeleteRepo = null;
+
+    // --- Delete tag (detail page) ---
+    document.querySelectorAll('.delete-tag-btn').forEach(btn => {
+        btn.addEventListener('click', function () {
+            pendingDeleteTag = this.getAttribute('data-tag');
+            const nameEl = document.getElementById('deleteTagName');
+            if (nameEl) nameEl.textContent = pendingDeleteTag;
+            const modal = new bootstrap.Modal(document.getElementById('deleteTagModal'));
+            modal.show();
+        });
+    });
+
+    const confirmDeleteTag = document.getElementById('confirmDeleteTag');
+    if (confirmDeleteTag) {
+        confirmDeleteTag.addEventListener('click', function () {
+            if (!pendingDeleteTag) return;
+            const table = document.querySelector('table[data-repository]');
+            const repository = table ? table.getAttribute('data-repository') : '';
+
+            fetch(`/ui/repositories/${encodeURI(repository)}/delete-tag/`, {
+                method: 'POST',
+                headers: {
+                    'X-CSRFToken': getCsrfToken(),
+                    'Content-Type': 'application/x-www-form-urlencoded',
+                },
+                body: `tag=${encodeURIComponent(pendingDeleteTag)}`,
+            })
+                .then(resp => resp.json().then(data => ({status: resp.status, data})))
+                .then(({status, data}) => {
+                    bootstrap.Modal.getInstance(document.getElementById('deleteTagModal')).hide();
+                    if (data.success) {
+                        const row = document.querySelector(`tr[data-tag-name="${pendingDeleteTag}"]`);
+                        if (row) row.remove();
+                        // Decrement badge count
+                        const badge = document.querySelector('.badge.bg-info');
+                        if (badge) {
+                            const current = parseInt(badge.textContent) || 0;
+                            badge.textContent = Math.max(0, current - 1);
+                        }
+                    } else {
+                        alert('Error: ' + (data.error || 'Unknown error'));
+                    }
+                    pendingDeleteTag = null;
+                })
+                .catch(err => {
+                    bootstrap.Modal.getInstance(document.getElementById('deleteTagModal')).hide();
+                    alert('Error deleting tag: ' + err);
+                    pendingDeleteTag = null;
+                });
+        });
+    }
+
+    // --- Delete repo (detail page, "Delete All Tags") ---
+    const confirmDeleteRepo = document.getElementById('confirmDeleteRepo');
+    if (confirmDeleteRepo) {
+        confirmDeleteRepo.addEventListener('click', function () {
+            const table = document.querySelector('table[data-repository]');
+            const repository = table ? table.getAttribute('data-repository') : '';
+            const btn = this;
+            const originalText = btn.innerHTML;
+            btn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span> Deleting...';
+            btn.disabled = true;
+
+            fetch(`/ui/repositories/${encodeURI(repository)}/delete/`, {
+                method: 'POST',
+                headers: {
+                    'X-CSRFToken': getCsrfToken(),
+                },
+            })
+                .then(resp => resp.json().then(data => ({status: resp.status, data})))
+                .then(({status, data}) => {
+                    bootstrap.Modal.getInstance(document.getElementById('deleteRepoModal')).hide();
+                    if (data.success || data.deleted.length > 0) {
+                        window.location.href = '/ui/repositories/';
+                    } else {
+                        btn.innerHTML = originalText;
+                        btn.disabled = false;
+                        alert('Error: ' + (data.errors.map(e => e.tag + ': ' + e.error).join('\n') || 'Unknown error'));
+                    }
+                })
+                .catch(err => {
+                    bootstrap.Modal.getInstance(document.getElementById('deleteRepoModal')).hide();
+                    btn.innerHTML = originalText;
+                    btn.disabled = false;
+                    alert('Error deleting repository: ' + err);
+                });
+        });
+    }
+
+    // --- Delete repo (list page) ---
+    document.querySelectorAll('.delete-repo-btn').forEach(btn => {
+        btn.addEventListener('click', function () {
+            pendingDeleteRepo = this.getAttribute('data-repository');
+            const nameEl = document.getElementById('deleteRepoListName');
+            if (nameEl) nameEl.textContent = pendingDeleteRepo;
+        });
+    });
+
+    const confirmDeleteRepoList = document.getElementById('confirmDeleteRepoList');
+    if (confirmDeleteRepoList) {
+        confirmDeleteRepoList.addEventListener('click', function () {
+            if (!pendingDeleteRepo) return;
+            const btn = this;
+            const originalText = btn.innerHTML;
+            btn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span> Deleting...';
+            btn.disabled = true;
+
+            fetch(`/ui/repositories/${encodeURI(pendingDeleteRepo)}/delete/`, {
+                method: 'POST',
+                headers: {
+                    'X-CSRFToken': getCsrfToken(),
+                },
+            })
+                .then(resp => resp.json().then(data => ({status: resp.status, data})))
+                .then(({status, data}) => {
+                    bootstrap.Modal.getInstance(document.getElementById('deleteRepoListModal')).hide();
+                    if (data.success || data.deleted.length > 0) {
+                        window.location.reload();
+                    } else {
+                        btn.innerHTML = originalText;
+                        btn.disabled = false;
+                        alert('Error: ' + (data.errors.map(e => e.tag + ': ' + e.error).join('\n') || 'Unknown error'));
+                    }
+                })
+                .catch(err => {
+                    bootstrap.Modal.getInstance(document.getElementById('deleteRepoListModal')).hide();
+                    btn.innerHTML = originalText;
+                    btn.disabled = false;
+                    alert('Error deleting repository: ' + err);
+                    pendingDeleteRepo = null;
+                });
+        });
+    }
+});
+
 document.addEventListener('DOMContentLoaded', function () {
     // Get all tag count elements
     const tagElements = document.querySelectorAll('[data-repo-name]');
