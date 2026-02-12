@@ -91,6 +91,68 @@ document.addEventListener('DOMContentLoaded', function () {
     });
 });
 
+// Async tag detail loading for repository detail page
+document.addEventListener('DOMContentLoaded', function () {
+    const table = document.querySelector('table[data-repository]');
+    if (!table) return;
+
+    const repository = table.getAttribute('data-repository');
+    const tbody = table.querySelector('tbody');
+
+    fetch(`/ui/repositories/${encodeURI(repository)}/tag-details/`)
+        .then(response => {
+            if (!response.ok) throw new Error('Network response was not ok');
+            return response.json();
+        })
+        .then(data => {
+            // Update each row with details
+            tbody.querySelectorAll('tr[data-tag-name]').forEach(row => {
+                const tag = row.getAttribute('data-tag-name');
+                const detail = data[tag];
+                if (!detail) return;
+
+                // Set created date for sorting
+                row.setAttribute('data-created', detail.created || '');
+
+                // Update Created cell
+                const createdCell = row.querySelector('.tag-created');
+                if (createdCell) createdCell.textContent = detail.age;
+
+                // Update Size cell
+                const sizeCell = row.querySelector('.tag-size');
+                if (sizeCell) sizeCell.textContent = detail.size;
+
+                // Update Architecture cell with badges
+                const archCell = row.querySelector('.tag-arch');
+                if (archCell) {
+                    archCell.innerHTML = detail.architectures.map(arch =>
+                        `<div class="mb-1"><span class="badge rounded-pill arch-badge arch-${arch.toLowerCase()}">${arch}</span></div>`
+                    ).join('');
+                }
+            });
+
+            // Sort rows by created date descending (ISO dates sort lexicographically)
+            const rows = Array.from(tbody.querySelectorAll('tr[data-tag-name]'));
+            rows.sort((a, b) => {
+                const dateA = a.getAttribute('data-created') || '';
+                const dateB = b.getAttribute('data-created') || '';
+                return dateB.localeCompare(dateA);
+            });
+            rows.forEach(row => tbody.appendChild(row));
+        })
+        .catch(error => {
+            console.error('Error fetching tag details:', error);
+            tbody.querySelectorAll('tr[data-tag-name]').forEach(row => {
+                const createdCell = row.querySelector('.tag-created');
+                const sizeCell = row.querySelector('.tag-size');
+                const archCell = row.querySelector('.tag-arch');
+                if (createdCell) createdCell.textContent = 'Error';
+                if (sizeCell) sizeCell.textContent = 'Error';
+                if (archCell) archCell.textContent = 'Error';
+            });
+        });
+});
+
 document.addEventListener('DOMContentLoaded', function () {
     // Get all tag count elements
     const tagElements = document.querySelectorAll('[data-repo-name]');

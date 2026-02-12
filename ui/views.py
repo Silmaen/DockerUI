@@ -119,127 +119,14 @@ def repository_list(request):
 
 
 def repository_detail(request, repository):
-    # Get list of tags
+    # Get list of tags (names only — details are loaded async via get_tag_details)
     tags_data, error_message = None, None
     try:
         tags_data = get_registry_data(f"{repository}/tags/list")
     except requests.exceptions.RequestException as e:
         error_message = str(e)
 
-    tags_with_details = []
-    if tags_data and "tags" in tags_data and tags_data["tags"]:
-        for tag in tags_data["tags"]:
-            try:
-                manifest_data = get_registry_data(f"{repository}/manifests/{tag}")
-                created_date = None
-                size = 0
-                architectures = []
-
-                # Check if the manifest is multi-arch
-                if manifest_data and manifest_data.get("manifests"):
-                    for entry in manifest_data.get("manifests", []):
-                        platform = entry.get("platform", {})
-                        arch = platform.get("architecture", "unknown")
-                        if (
-                            arch != "unknown"
-                            and not entry.get("annotations", {}).get(
-                                "vnd.docker.reference.type"
-                            )
-                            == "attestation-manifest"
-                        ):
-                            architectures.append(arch)
-
-                            # Récupérer les détails du premier manifeste valide trouvé
-                            if created_date is None:
-                                digest = entry.get("digest", "")
-                                # D'abord récupérer le manifeste spécifique à l'architecture
-                                arch_manifest = get_registry_data(
-                                    f"{repository}/manifests/{digest}"
-                                )
-                                if (
-                                    arch_manifest
-                                    and "config" in arch_manifest
-                                    and "digest" in arch_manifest.get("config", {})
-                                ):
-                                    # Ensuite récupérer la configuration avec le bon digest
-                                    config_digest = arch_manifest["config"]["digest"]
-                                    config_data = get_registry_data(
-                                        f"{repository}/blobs/{config_digest}"
-                                    )
-                                    if config_data and "created" in config_data:
-                                        created_date = config_data["created"]
-
-                                    # Calculer la taille
-                                    if "layers" in arch_manifest:
-                                        for layer in arch_manifest.get("layers", []):
-                                            size += layer.get("size", 0)
-                else:
-                    # Single architecture manifest
-                    if (
-                        manifest_data
-                        and "config" in manifest_data
-                        and "digest" in manifest_data["config"]
-                    ):
-                        config_data = get_registry_data(
-                            f"{repository}/blobs/{manifest_data['config']['digest']}"
-                        )
-                        if "created" in config_data:
-                            created_date = config_data["created"]
-                        if "architecture" in config_data:
-                            architectures.append(config_data["architecture"])
-
-                    if manifest_data and "layers" in manifest_data:
-                        for layer in manifest_data["layers"]:
-                            size += layer.get("size", 0)
-
-                # Format age
-                age = "Unknown"
-                if created_date:
-                    try:
-                        if "." in created_date:
-                            parts = created_date.split(".")
-                            microseconds = parts[1].replace("Z", "")[:6]
-                            created_date = f"{parts[0]}.{microseconds}Z"
-
-                        created_datetime = datetime.fromisoformat(
-                            created_date.replace("Z", "+00:00")
-                        )
-                        age = format_time_difference(created_datetime)
-                    except Exception as e:
-                        print(f"Date parsing error: {e}, value: '{created_date}'")
-
-                size_str = format_size(size) if size else "Unknown"
-
-                tags_with_details.append(
-                    {
-                        "name": tag,
-                        "created": created_date,
-                        "age": age,
-                        "architectures": architectures or ["Unknown"],
-                        "size": size_str,
-                        "size_bytes": size,
-                    }
-                )
-
-            except Exception as e:
-                print(f"Error retrieving manifest for {tag}: {e}")
-                tags_with_details.append(
-                    {
-                        "name": tag,
-                        "created": None,
-                        "age": "Error",
-                        "architectures": ["Error"],
-                        "size": "Error",
-                        "size_bytes": 0,
-                    }
-                )
-
-        # Sort by creation date
-        def safe_sort_key(sorting_tag):
-            created = sorting_tag.get("created")
-            return created if created is not None else ""
-
-        tags_with_details.sort(key=safe_sort_key, reverse=True)
+    tags = sorted(tags_data.get("tags", [])) if tags_data and tags_data.get("tags") else []
 
     # Add registry URL to context
     registry_url = settings.REGISTRY_URL.replace("http://", "").replace("https://", "")
@@ -260,12 +147,121 @@ def repository_detail(request, repository):
 
     context = {
         "repository": repository,
-        "tags": tags_with_details,
+        "tags": tags,
         "error_message": error_message,
         "registry_url": registry_url,
         "pull_command_base": pull_command_base,
     }
     return render(request, "ui/repository_detail.html", context)
+
+
+def _get_tag_detail(repository, tag):
+    """Fetch manifest/config details for a single tag and return a detail dict."""
+    manifest_data = get_registry_data(f"{repository}/manifests/{tag}")
+    created_date = None
+    size = 0
+    architectures = []
+
+    # Check if the manifest is multi-arch
+    if manifest_data and manifest_data.get("manifests"):
+        for entry in manifest_data.get("manifests", []):
+            platform = entry.get("platform", {})
+            arch = platform.get("architecture", "unknown")
+            if (
+                arch != "unknown"
+                and not entry.get("annotations", {}).get(
+                    "vnd.docker.reference.type"
+                )
+                == "attestation-manifest"
+            ):
+                architectures.append(arch)
+
+                # Récupérer les détails du premier manifeste valide trouvé
+                if created_date is None:
+                    digest = entry.get("digest", "")
+                    arch_manifest = get_registry_data(
+                        f"{repository}/manifests/{digest}"
+                    )
+                    if (
+                        arch_manifest
+                        and "config" in arch_manifest
+                        and "digest" in arch_manifest.get("config", {})
+                    ):
+                        config_digest = arch_manifest["config"]["digest"]
+                        config_data = get_registry_data(
+                            f"{repository}/blobs/{config_digest}"
+                        )
+                        if config_data and "created" in config_data:
+                            created_date = config_data["created"]
+
+                        if "layers" in arch_manifest:
+                            for layer in arch_manifest.get("layers", []):
+                                size += layer.get("size", 0)
+    else:
+        # Single architecture manifest
+        if (
+            manifest_data
+            and "config" in manifest_data
+            and "digest" in manifest_data.get("config", {})
+        ):
+            config_data = get_registry_data(
+                f"{repository}/blobs/{manifest_data['config']['digest']}"
+            )
+            if "created" in config_data:
+                created_date = config_data["created"]
+            if "architecture" in config_data:
+                architectures.append(config_data["architecture"])
+
+        if manifest_data and "layers" in manifest_data:
+            for layer in manifest_data["layers"]:
+                size += layer.get("size", 0)
+
+    # Format age
+    age = "Unknown"
+    if created_date:
+        try:
+            if "." in created_date:
+                parts = created_date.split(".")
+                microseconds = parts[1].replace("Z", "")[:6]
+                created_date = f"{parts[0]}.{microseconds}Z"
+
+            created_datetime = datetime.fromisoformat(
+                created_date.replace("Z", "+00:00")
+            )
+            age = format_time_difference(created_datetime)
+        except Exception as e:
+            print(f"Date parsing error: {e}, value: '{created_date}'")
+
+    return {
+        "created": created_date,
+        "age": age,
+        "size": format_size(size) if size else "Unknown",
+        "size_bytes": size,
+        "architectures": architectures or ["Unknown"],
+    }
+
+
+@require_GET
+def get_tag_details(request, repository):
+    """Return details (date, size, architectures) for all tags of a repository."""
+    tags_data = get_registry_data(f"{repository}/tags/list")
+    tags = tags_data.get("tags", []) if tags_data else []
+
+    result = {}
+    for tag in tags:
+        try:
+            result[tag] = _get_tag_detail(repository, tag)
+        except Exception as e:
+            print(f"Error retrieving manifest for {tag}: {e}")
+            result[tag] = {
+                "created": None,
+                "age": "Error",
+                "size": "Error",
+                "size_bytes": 0,
+                "architectures": ["Error"],
+            }
+
+    return JsonResponse(result)
 
 
 @require_GET

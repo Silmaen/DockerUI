@@ -30,7 +30,7 @@
 
             {% if tags %}
             <div class="table-responsive">
-                <table class="table table-dark table-hover">
+                <table class="table table-dark table-hover" data-repository="{{ repository }}">
                     <thead>
                     <tr>
                         <th>Created</th>
@@ -41,29 +41,23 @@
                     </thead>
                     <tbody>
                     {% for tag in tags %}
-                    <tr>
-                        <td>{{ tag.age }}</td>
-                        <td>{{ tag.size }}</td>
+                    <tr data-tag-name="{{ tag }}">
+                        <td class="tag-created"><i class="bi bi-hourglass-split loading-spin"></i></td>
+                        <td class="tag-size"><i class="bi bi-hourglass-split loading-spin"></i></td>
                         <td class="text-right">
-                            {{ tag.name }}
+                            {{ tag }}
                             <button class="copy-pull-btn btn btn-outline-secondary btn-sm"
                                     data-repo="{{ repository }}"
-                                    data-tag="{{ tag.name }}"
+                                    data-tag="{{ tag }}"
                                     data-registry="{{ registry_url }}"
                                     title="Copy docker pull command"
                                     data-bs-toggle="tooltip"
                                     data-bs-placement="top"
-                                    data-command="{{ pull_command_base }}:{{ tag.name }}">
+                                    data-command="{{ pull_command_base }}:{{ tag }}">
                                 <i class="bi bi-copy"></i>
                             </button>
                         </td>
-                        <td class="arch-column">
-                            {% for arch in tag.architectures %}
-                            <div class="mb-1">
-                                <span class="badge rounded-pill arch-badge arch-{{ arch|lower }}">{{ arch }}</span>
-                            </div>
-                            {% endfor %}
-                        </td>
+                        <td class="arch-column tag-arch"><i class="bi bi-hourglass-split loading-spin"></i></td>
                     </tr>
                     {% endfor %}
                     </tbody>
