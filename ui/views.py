@@ -271,5 +271,6 @@ def repository_detail(request, repository):
 @require_GET
 def get_tag_counts(request):
     """Return tag counts for all repositories"""
-    tag_counts = get_all_tag_counts(force_refresh=True)
+    force = request.GET.get("force", "").lower() == "true"
+    tag_counts = get_all_tag_counts(force_refresh=force)
     return JsonResponse(tag_counts)
