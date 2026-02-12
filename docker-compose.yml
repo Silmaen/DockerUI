@@ -2,6 +2,8 @@ services:
 
   registry-ui:
     build: .
+    restart: unless-stopped
+    mem_limit: 512m
     ports:
       - "8000:8000"
     environment:

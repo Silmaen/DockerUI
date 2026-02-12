@@ -65,7 +65,7 @@ def get_registry_data(endpoint):
 
     # logger.debug(f"Requesting {url}")
 
-    response = session.get(url, headers=headers)
+    response = session.get(url, headers=headers, timeout=30)
     if response.status_code == 404:
         logger.warning(f"Resource not found: {url}")
         return None

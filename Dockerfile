@@ -22,4 +22,4 @@ RUN python manage.py collectstatic
 EXPOSE 8000
 
 # Run the application
-CMD ["gunicorn", "--workers=3", "--threads=2", "--bind", "0.0.0.0:8000", "DockerUI.wsgi"]
+CMD ["gunicorn", "--workers=2", "--threads=2", "--bind", "0.0.0.0:8000", "DockerUI.wsgi"]
