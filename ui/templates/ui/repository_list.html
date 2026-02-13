@@ -14,21 +14,23 @@
 
     {% if namespaces %}
     <div class="card">
-        <div class="card-header bg-dark text-white">
-            <h2 class="h5 mb-0">Image Registry</h2>
+        <div class="card-header d-flex justify-content-between align-items-center">
+            <h2 class="h5 mb-0">
+                <i class="bi bi-collection me-2"></i>Image Registry
+            </h2>
         </div>
         <div class="list-group list-group-flush">
             {% for namespace, namespace_data in namespaces.items %}
             <div class="list-group-item p-0">
-                <div class="d-flex align-items-center p-3 bg-dark folder-header"
+                <div class="d-flex align-items-center p-3 folder-header"
                      data-bs-toggle="collapse"
-                     href="#collapse-{{ namespace|slugify }}"
+                     data-bs-target="#collapse-{{ namespace|slugify }}"
                      role="button"
                      aria-expanded="false"
                      aria-controls="collapse-{{ namespace|slugify }}">
-                    <i class="bi bi-folder me-2"></i>
+                    <i class="bi bi-folder-fill me-2"></i>
                     <h3 class="h5 mb-0 me-auto">{{ namespace|default:"Default" }}</h3>
-                    <span class="badge bg-secondary me-2">{{ namespace_data.total_count }}</span>
+                    <span class="badge rounded-pill folder-count-badge me-2">{{ namespace_data.total_count }}</span>
                     <i class="bi bi-chevron-up chevron-icon"></i>
                 </div>
                 <div class="collapse" id="collapse-{{ namespace|slugify }}">
@@ -36,48 +38,47 @@
                         {% if namespace_data.sub_namespaces %}
                         {% for sub_namespace, sub_data in namespace_data.sub_namespaces.items %}
                         <li class="list-group-item p-0">
-                            <div class="d-flex align-items-center p-3 bg-dark bg-opacity-25 folder-header ps-5"
+                            <div class="d-flex align-items-center p-3 folder-header folder-level-2 ps-5"
                                  data-bs-toggle="collapse"
-                                 href="#collapse-{{ namespace|slugify }}-{{ sub_namespace|slugify }}"
+                                 data-bs-target="#collapse-{{ namespace|slugify }}-{{ sub_namespace|slugify }}"
                                  role="button"
                                  aria-expanded="false"
                                  aria-controls="collapse-{{ namespace|slugify }}-{{ sub_namespace|slugify }}">
-                                <i class="bi bi-folder me-2"></i>
+                                <i class="bi bi-folder-fill me-2"></i>
                                 <h4 class="h6 mb-0 me-auto">{{ sub_namespace }}</h4>
-                                <span class="badge bg-secondary me-2">{{ sub_data.total_count }}</span>
+                                <span class="badge rounded-pill folder-count-badge me-2">{{ sub_data.total_count }}</span>
                                 <i class="bi bi-chevron-up chevron-icon"></i>
                             </div>
                             <div class="collapse" id="collapse-{{ namespace|slugify }}-{{ sub_namespace|slugify }}">
                                 <ul class="list-group list-group-flush">
                                     {% if sub_data.sub_namespaces %}
-                                    <!-- Afficher les sous-sous-namespaces de façon récursive -->
                                     {% for subsub_namespace, subsub_data in sub_data.sub_namespaces.items %}
                                     <li class="list-group-item p-0">
-                                        <div class="d-flex align-items-center p-3 bg-dark bg-opacity-10 folder-header ps-6"
+                                        <div class="d-flex align-items-center p-3 folder-header folder-level-3 ps-6"
                                              data-bs-toggle="collapse"
-                                             href="#collapse-{{ namespace|slugify }}-{{ sub_namespace|slugify }}-{{ subsub_namespace|slugify }}"
+                                             data-bs-target="#collapse-{{ namespace|slugify }}-{{ sub_namespace|slugify }}-{{ subsub_namespace|slugify }}"
                                              role="button"
                                              aria-expanded="false"
                                              aria-controls="collapse-{{ namespace|slugify }}-{{ sub_namespace|slugify }}-{{ subsub_namespace|slugify }}">
-                                            <i class="bi bi-folder me-2"></i>
+                                            <i class="bi bi-folder-fill me-2"></i>
                                             <h5 class="h6 mb-0 me-auto">{{ subsub_namespace }}</h5>
-                                            <span class="badge bg-secondary me-2">{{ subsub_data.total_count }}</span>
+                                            <span class="badge rounded-pill folder-count-badge me-2">{{ subsub_data.total_count }}</span>
                                             <i class="bi bi-chevron-up chevron-icon"></i>
                                         </div>
                                         <div class="collapse"
                                              id="collapse-{{ namespace|slugify }}-{{ sub_namespace|slugify }}-{{ subsub_namespace|slugify }}">
                                             <ul class="list-group list-group-flush">
                                                 {% for repo in subsub_data.repos %}
-                                                <li class="list-group-item ps-7 d-flex align-items-center">
-                                                    <i class="bi bi-boxes me-2"></i>
+                                                <li class="list-group-item repo-item ps-7 d-flex align-items-center">
+                                                    <i class="bi bi-box me-2"></i>
                                                     <a href="{% url 'ui:repository_detail' repository=repo.full_name %}"
                                                        class="repo-name me-auto">{{ repo.name }}</a>
                                                     <span data-repo-name="{{ repo.full_name }}"
-                                                          class="badge bg-dark text-white tag-count">
-                                                        <small><i class="bi bi-hourglass-split"></i></small>
+                                                          class="badge rounded-pill tag-count-badge">
+                                                        <i class="bi bi-hourglass-split loading-spin"></i>
                                                     </span>
                                                     {% if is_admin %}
-                                                    <button class="delete-repo-btn btn btn-sm btn-outline-danger ms-2" data-repository="{{ repo.full_name }}" data-bs-toggle="modal" data-bs-target="#deleteRepoListModal" title="Delete image">
+                                                    <button class="delete-repo-btn btn btn-sm ms-2" data-repository="{{ repo.full_name }}" data-bs-toggle="modal" data-bs-target="#deleteRepoListModal" title="Delete image">
                                                         <i class="bi bi-trash"></i>
                                                     </button>
                                                     {% endif %}
@@ -90,16 +91,16 @@
                                     {% endif %}
 
                                     {% for repo in sub_data.repos %}
-                                    <li class="list-group-item ps-6 d-flex align-items-center">
-                                        <i class="bi bi-boxes me-2"></i>
+                                    <li class="list-group-item repo-item ps-6 d-flex align-items-center">
+                                        <i class="bi bi-box me-2"></i>
                                         <a href="{% url 'ui:repository_detail' repository=repo.full_name %}"
                                            class="repo-name me-auto">{{ repo.name }}</a>
                                         <span data-repo-name="{{ repo.full_name }}"
-                                              class="badge bg-dark text-white tag-count">
-                                            <small><i class="bi bi-hourglass-split"></i></small>
+                                              class="badge rounded-pill tag-count-badge">
+                                            <i class="bi bi-hourglass-split loading-spin"></i>
                                         </span>
                                         {% if is_admin %}
-                                        <button class="delete-repo-btn btn btn-sm btn-outline-danger ms-2" data-repository="{{ repo.full_name }}" data-bs-toggle="modal" data-bs-target="#deleteRepoListModal" title="Delete image">
+                                        <button class="delete-repo-btn btn btn-sm ms-2" data-repository="{{ repo.full_name }}" data-bs-toggle="modal" data-bs-target="#deleteRepoListModal" title="Delete image">
                                             <i class="bi bi-trash"></i>
                                         </button>
                                         {% endif %}
@@ -112,15 +113,15 @@
                         {% endif %}
 
                         {% for repo in namespace_data.repos %}
-                        <li class="list-group-item ps-4 d-flex align-items-center">
-                            <i class="bi bi-boxes me-2"></i>
+                        <li class="list-group-item repo-item ps-4 d-flex align-items-center">
+                            <i class="bi bi-box me-2"></i>
                             <a href="{% url 'ui:repository_detail' repository=repo.full_name %}"
                                class="repo-name me-auto">{{ repo.name }}</a>
-                            <span data-repo-name="{{ repo.full_name }}" class="badge bg-dark text-white tag-count">
-                                <small><i class="bi bi-hourglass-split"></i></small>
+                            <span data-repo-name="{{ repo.full_name }}" class="badge rounded-pill tag-count-badge">
+                                <i class="bi bi-hourglass-split loading-spin"></i>
                             </span>
                             {% if is_admin %}
-                            <button class="delete-repo-btn btn btn-sm btn-outline-danger ms-2" data-repository="{{ repo.full_name }}" data-bs-toggle="modal" data-bs-target="#deleteRepoListModal" title="Delete image">
+                            <button class="delete-repo-btn btn btn-sm ms-2" data-repository="{{ repo.full_name }}" data-bs-toggle="modal" data-bs-target="#deleteRepoListModal" title="Delete image">
                                 <i class="bi bi-trash"></i>
                             </button>
                             {% endif %}
@@ -133,7 +134,7 @@
         </div>
     </div>
     {% else %}
-    <p class="text-white">No images found.</p>
+    <p>No images found.</p>
     {% endif %}
 </div>
 
@@ -141,16 +142,16 @@
 <!-- Delete Repository Modal -->
 <div class="modal fade" id="deleteRepoListModal" tabindex="-1">
     <div class="modal-dialog">
-        <div class="modal-content bg-dark">
-            <div class="modal-header border-secondary">
+        <div class="modal-content">
+            <div class="modal-header">
                 <h5 class="modal-title"><i class="bi bi-exclamation-triangle text-danger me-2"></i>Delete Image</h5>
-                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
             </div>
             <div class="modal-body">
                 Are you sure you want to delete all tags from <strong id="deleteRepoListName"></strong>?
                 This action cannot be undone.
             </div>
-            <div class="modal-footer border-secondary">
+            <div class="modal-footer">
                 <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
                 <button type="button" class="btn btn-danger" id="confirmDeleteRepoList">Delete</button>
             </div>
