@@ -39,16 +39,12 @@ def repository_list(request):
     namespaces = {}
 
     for repo in repositories:
-        # Ignorer les repositories vides
         if not repo:
             continue
 
         parts = repo.split("/")
-
-        # Déterminer le namespace principal
         namespace = parts[0] if parts else "<default>"
 
-        # Ignorer les namespaces vides
         if not namespace:
             continue
 
@@ -56,28 +52,18 @@ def repository_list(request):
             namespaces[namespace] = {
                 "repos": [],
                 "sub_namespaces": {},
-                "total_count": 0,
             }
 
-        # Gérer les repositories avec ou sans sous-namespaces
         current_level = namespaces[namespace]
 
-        if len(parts) == 1:
-            # Repo sans namespace
-            repo_info = {"full_name": repo, "name": repo}
-            current_level["repos"].append(repo_info)
-        elif len(parts) == 2:
-            # Repo avec un seul namespace
-            repo_info = {"full_name": repo, "name": parts[1]}
+        if len(parts) <= 2:
+            repo_info = {"full_name": repo, "name": parts[-1]}
             current_level["repos"].append(repo_info)
         else:
-            # Repo avec des sous-namespaces multiples
-            # Naviguer et créer la structure récursive de sous-namespaces
-            valid_path = True  # Pour vérifier si tous les segments sont valides
+            valid_path = True
             for i in range(1, len(parts) - 1):
                 sub_namespace = parts[i]
 
-                # Ignorer les sous-namespaces vides
                 if not sub_namespace:
                     valid_path = False
                     break
@@ -86,43 +72,30 @@ def repository_list(request):
                     current_level["sub_namespaces"][sub_namespace] = {
                         "repos": [],
                         "sub_namespaces": {},
-                        "total_count": 0,
                     }
                 current_level = current_level["sub_namespaces"][sub_namespace]
-                # Incrémenter le compteur à chaque niveau
-                current_level["total_count"] += 1
 
-            # Ajouter le repo au niveau actuel seulement si le chemin est valide
-            if valid_path and parts[-1]:  # Vérifier que le nom du repo n'est pas vide
+            if valid_path and parts[-1]:
                 repo_info = {"full_name": repo, "name": parts[-1]}
                 current_level["repos"].append(repo_info)
 
-                # Incrémenter le compteur total du namespace principal
-                namespaces[namespace]["total_count"] += 1
-
-    # Trier les namespaces et sous-namespaces
-    sorted_keys = sorted(namespaces.keys())
-    ordered_namespaces = {k: namespaces[k] for k in sorted_keys if k != "<default>"}
-
-    # Fonction récursive pour trier les sous-namespaces
-    def sort_sub_namespaces(ns_dict):
-        if not ns_dict["sub_namespaces"]:
-            return ns_dict
-
+    def compute_counts_and_sort(ns_dict):
+        """Trier les sous-namespaces et calculer total_count récursivement."""
         sorted_subs = {}
         for k in sorted(ns_dict["sub_namespaces"].keys()):
-            sorted_subs[k] = sort_sub_namespaces(ns_dict["sub_namespaces"][k])
-
+            sorted_subs[k] = compute_counts_and_sort(ns_dict["sub_namespaces"][k])
         ns_dict["sub_namespaces"] = sorted_subs
+        ns_dict["total_count"] = len(ns_dict["repos"]) + len(ns_dict["sub_namespaces"])
         return ns_dict
 
-    # Appliquer le tri récursif à tous les namespaces
-    for k in ordered_namespaces:
-        ordered_namespaces[k] = sort_sub_namespaces(ordered_namespaces[k])
+    sorted_keys = sorted(namespaces.keys())
+    ordered_namespaces = {}
+    for k in sorted_keys:
+        if k != "<default>":
+            ordered_namespaces[k] = compute_counts_and_sort(namespaces[k])
 
-    # Ajouter default à la fin
     if "<default>" in namespaces:
-        ordered_namespaces["<default>"] = namespaces["<default>"]
+        ordered_namespaces["<default>"] = compute_counts_and_sort(namespaces["<default>"])
 
     context = {"namespaces": ordered_namespaces, "error_message": error_message}
     return render(request, "ui/repository_list.html", context)

@@ -1,53 +1,83 @@
 /* ui/static/ui/js/scripts.js */
-document.addEventListener('DOMContentLoaded', function () {
-    // Get all folder headers
+
+/* ============================================
+   Theme toggle
+   ============================================ */
+function initThemeToggle() {
+    const toggle = document.getElementById('themeToggle');
+    if (!toggle) return;
+
+    function updateIcon() {
+        const theme = document.documentElement.getAttribute('data-bs-theme');
+        const icon = toggle.querySelector('i');
+        if (icon) {
+            icon.className = theme === 'dark' ? 'bi bi-moon' : 'bi bi-sun';
+        }
+    }
+
+    updateIcon();
+
+    toggle.addEventListener('click', function () {
+        const current = document.documentElement.getAttribute('data-bs-theme');
+        const next = current === 'dark' ? 'light' : 'dark';
+        document.documentElement.setAttribute('data-bs-theme', next);
+        localStorage.setItem('theme', next);
+        updateIcon();
+    });
+}
+
+/* ============================================
+   Folder state persistence
+   ============================================ */
+function getFolderTargetId(header) {
+    const attr = header.getAttribute('data-bs-target') || header.getAttribute('href') || '';
+    return attr.replace('#', '');
+}
+
+function initFolderStates() {
     const folderHeaders = document.querySelectorAll('.folder-header');
 
-    // Load saved states
     folderHeaders.forEach(header => {
-        const targetId = header.getAttribute('data-bs-target').replace('#', '');
+        const targetId = getFolderTargetId(header);
+        if (!targetId) return;
         const target = document.getElementById(targetId);
-        const isCollapsed = localStorage.getItem(`folder-${targetId}`) === 'collapsed';
+        const saved = localStorage.getItem(`folder-${targetId}`);
 
-        if (isCollapsed) {
+        if (saved === 'collapsed') {
             header.setAttribute('aria-expanded', 'false');
             if (target) target.classList.remove('show');
-        } else if (localStorage.getItem(`folder-${targetId}`) === 'expanded') {
+        } else if (saved === 'expanded') {
             header.setAttribute('aria-expanded', 'true');
             if (target) target.classList.add('show');
         }
     });
 
-    // Save state on click
     folderHeaders.forEach(header => {
         header.addEventListener('click', function () {
-            const targetId = this.getAttribute('data-bs-target').replace('#', '');
+            const targetId = getFolderTargetId(this);
+            if (!targetId) return;
             const isExpanded = this.getAttribute('aria-expanded') === 'true';
             localStorage.setItem(`folder-${targetId}`, isExpanded ? 'collapsed' : 'expanded');
         });
     });
-});
+}
 
-// Copy docker pull command
+/* ============================================
+   Copy to clipboard
+   ============================================ */
 function copyToClipboard(text) {
-    // Method 1: Try modern clipboard API (works in HTTPS)
     if (navigator.clipboard && window.isSecureContext) {
         return navigator.clipboard.writeText(text);
     } else {
-        // Method 2: Fallback for HTTP using document.execCommand
         const textArea = document.createElement('textarea');
         textArea.value = text;
-
-        // Make it invisible but keep it functional
         textArea.style.position = 'fixed';
         textArea.style.opacity = '0';
         textArea.style.left = '-999999px';
         textArea.style.top = '-999999px';
-
         document.body.appendChild(textArea);
         textArea.focus();
         textArea.select();
-
         return new Promise((resolve, reject) => {
             try {
                 const success = document.execCommand('copy');
@@ -65,34 +95,31 @@ function copyToClipboard(text) {
     }
 }
 
-// Replace your existing click handler with this
-document.addEventListener('DOMContentLoaded', function () {
+function initCopyButtons() {
     document.querySelectorAll('.copy-pull-btn').forEach(button => {
         button.addEventListener('click', function () {
             const command = this.getAttribute('data-command');
             if (command) {
                 copyToClipboard(command)
                     .then(() => {
-                        // Visual feedback
                         const originalHTML = this.innerHTML;
                         this.innerHTML = '<i class="bi bi-check"></i>';
-                        this.classList.add('btn-success');
-                        this.classList.remove('btn-outline-secondary');
-
+                        this.classList.add('copy-success');
                         setTimeout(() => {
                             this.innerHTML = originalHTML;
-                            this.classList.remove('btn-success');
-                            this.classList.add('btn-outline-secondary');
+                            this.classList.remove('copy-success');
                         }, 1500);
                     })
                     .catch(err => console.error('Copy failed:', err));
             }
         });
     });
-});
+}
 
-// Async tag detail loading for repository detail page
-document.addEventListener('DOMContentLoaded', function () {
+/* ============================================
+   Async tag detail loading
+   ============================================ */
+function initTagDetails() {
     const table = document.querySelector('table[data-repository]');
     if (!table) return;
 
@@ -105,24 +132,19 @@ document.addEventListener('DOMContentLoaded', function () {
             return response.json();
         })
         .then(data => {
-            // Update each row with details
             tbody.querySelectorAll('tr[data-tag-name]').forEach(row => {
                 const tag = row.getAttribute('data-tag-name');
                 const detail = data[tag];
                 if (!detail) return;
 
-                // Set created date for sorting
                 row.setAttribute('data-created', detail.created || '');
 
-                // Update Created cell
                 const createdCell = row.querySelector('.tag-created');
                 if (createdCell) createdCell.textContent = detail.age;
 
-                // Update Size cell
                 const sizeCell = row.querySelector('.tag-size');
                 if (sizeCell) sizeCell.textContent = detail.size;
 
-                // Update Architecture cell with badges
                 const archCell = row.querySelector('.tag-arch');
                 if (archCell) {
                     archCell.innerHTML = detail.architectures.map(arch =>
@@ -131,7 +153,6 @@ document.addEventListener('DOMContentLoaded', function () {
                 }
             });
 
-            // Sort rows by created date descending (ISO dates sort lexicographically)
             const rows = Array.from(tbody.querySelectorAll('tr[data-tag-name]'));
             rows.sort((a, b) => {
                 const dateA = a.getAttribute('data-created') || '';
@@ -151,19 +172,21 @@ document.addEventListener('DOMContentLoaded', function () {
                 if (archCell) archCell.textContent = 'Error';
             });
         });
-});
+}
 
-// --- Admin delete logic ---
+/* ============================================
+   Admin delete logic
+   ============================================ */
 function getCsrfToken() {
     const cookie = document.cookie.split('; ').find(row => row.startsWith('csrftoken='));
     return cookie ? cookie.split('=')[1] : '';
 }
 
-document.addEventListener('DOMContentLoaded', function () {
+function initAdminDelete() {
     let pendingDeleteTag = null;
     let pendingDeleteRepo = null;
 
-    // --- Delete tag (detail page) ---
+    // Delete tag (detail page)
     document.querySelectorAll('.delete-tag-btn').forEach(btn => {
         btn.addEventListener('click', function () {
             pendingDeleteTag = this.getAttribute('data-tag');
@@ -195,7 +218,6 @@ document.addEventListener('DOMContentLoaded', function () {
                     if (data.success) {
                         const row = document.querySelector(`tr[data-tag-name="${pendingDeleteTag}"]`);
                         if (row) row.remove();
-                        // Decrement badge count
                         const badge = document.querySelector('.badge.bg-info');
                         if (badge) {
                             const current = parseInt(badge.textContent) || 0;
@@ -214,7 +236,7 @@ document.addEventListener('DOMContentLoaded', function () {
         });
     }
 
-    // --- Delete repo (detail page, "Delete All Tags") ---
+    // Delete repo (detail page, "Delete All Tags")
     const confirmDeleteRepo = document.getElementById('confirmDeleteRepo');
     if (confirmDeleteRepo) {
         confirmDeleteRepo.addEventListener('click', function () {
@@ -251,7 +273,7 @@ document.addEventListener('DOMContentLoaded', function () {
         });
     }
 
-    // --- Delete repo (list page) ---
+    // Delete repo (list page)
     document.querySelectorAll('.delete-repo-btn').forEach(btn => {
         btn.addEventListener('click', function () {
             pendingDeleteRepo = this.getAttribute('data-repository');
@@ -295,51 +317,51 @@ document.addEventListener('DOMContentLoaded', function () {
                 });
         });
     }
-});
+}
 
-document.addEventListener('DOMContentLoaded', function () {
-    // Get all tag count elements
+/* ============================================
+   Async tag count loading (list page)
+   ============================================ */
+function initTagCounts() {
     const tagElements = document.querySelectorAll('[data-repo-name]');
+    if (tagElements.length === 0) return;
 
-    // Only proceed if there are elements to update
-    if (tagElements.length > 0) {
-        // Show loading indicators
-        tagElements.forEach(el => {
-            el.innerHTML = '<small><i class="bi bi-hourglass-split loading-spin"></i></small>';
-            el.classList.add('bg-dark', 'text-white');
-        });
+    fetch('/ui/tag-counts/')
+        .then(response => {
+            if (!response.ok) throw new Error('Network response was not ok');
+            return response.json();
+        })
+        .then(data => {
+            tagElements.forEach(el => {
+                const repoName = el.getAttribute('data-repo-name');
+                const tagCount = data[repoName] || 0;
 
-        // Fetch tag counts
-        fetch('/ui/tag-counts/')
-            .then(response => {
-                if (!response.ok) {
-                    throw new Error('Network response was not ok');
+                if (tagCount > 0) {
+                    el.textContent = `${tagCount} tag${tagCount !== 1 ? 's' : ''}`;
+                    el.classList.add('tag-count-loaded');
+                } else {
+                    el.textContent = '0 tags';
+                    el.classList.add('tag-count-zero');
                 }
-                return response.json();
-            })
-            .then(data => {
-                tagElements.forEach(element => {
-                    const repoName = element.getAttribute('data-repo-name');
-                    const tagCount = data[repoName] || 0;
-
-                    if (tagCount > 0) {
-                        element.textContent = `${tagCount} tag${tagCount !== 1 ? 's' : ''}`;
-                        element.classList.remove('bg-dark');
-                        element.classList.add('bg-primary');
-                    } else {
-                        element.textContent = '0 tags';
-                        element.classList.remove('bg-dark');
-                        element.classList.add('bg-secondary');
-                    }
-                });
-            })
-            .catch(error => {
-                console.error('Error fetching tag counts:', error);
-                tagElements.forEach(element => {
-                    element.textContent = 'Error';
-                    element.classList.remove('bg-dark');
-                    element.classList.add('bg-danger');
-                });
             });
-    }
+        })
+        .catch(error => {
+            console.error('Error fetching tag counts:', error);
+            tagElements.forEach(el => {
+                el.textContent = 'Error';
+                el.classList.add('tag-count-error');
+            });
+        });
+}
+
+/* ============================================
+   Initialize everything on DOMContentLoaded
+   ============================================ */
+document.addEventListener('DOMContentLoaded', function () {
+    initThemeToggle();
+    initFolderStates();
+    initCopyButtons();
+    initTagDetails();
+    initAdminDelete();
+    initTagCounts();
 });
