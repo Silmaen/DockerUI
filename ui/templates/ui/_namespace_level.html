@@ -1,0 +1,44 @@
+{% load static %}
+<li class="list-group-item p-0">
+    <div class="d-flex align-items-center p-3 folder-header"
+         style="--depth: {{ depth }};"
+         data-bs-toggle="collapse"
+         data-bs-target="#collapse-{{ ns_data.collapse_id }}"
+         role="button"
+         aria-expanded="false"
+         aria-controls="collapse-{{ ns_data.collapse_id }}">
+        <i class="bi bi-folder-fill me-2"></i>
+        {% if depth == 0 %}
+        <h3 class="h5 mb-0 me-auto">{{ ns_name|default:"Default" }}</h3>
+        {% else %}
+        <h4 class="h6 mb-0 me-auto">{{ ns_name }}</h4>
+        {% endif %}
+        <span class="badge rounded-pill folder-count-badge me-2">{{ ns_data.total_count }}</span>
+        <i class="bi bi-chevron-up chevron-icon"></i>
+    </div>
+    <div class="collapse" id="collapse-{{ ns_data.collapse_id }}">
+        <ul class="list-group list-group-flush">
+            {% for sub_name, sub_data in ns_data.sub_namespaces.items %}
+                {% with depth=depth|add:1 ns_name=sub_name ns_data=sub_data %}
+                    {% include "ui/_namespace_level.html" %}
+                {% endwith %}
+            {% endfor %}
+            {% for repo in ns_data.repos %}
+            <li class="list-group-item repo-item d-flex align-items-center" style="--depth: {{ depth }};">
+                <i class="bi bi-box me-2"></i>
+                <a href="{% url 'ui:repository_detail' repository=repo.full_name %}"
+                   class="repo-name me-auto">{{ repo.name }}</a>
+                <span data-repo-name="{{ repo.full_name }}"
+                      class="badge rounded-pill tag-count-badge">
+                    <i class="bi bi-hourglass-split loading-spin"></i>
+                </span>
+                {% if is_admin %}
+                <button class="delete-repo-btn btn btn-sm ms-2" data-repository="{{ repo.full_name }}" data-bs-toggle="modal" data-bs-target="#deleteRepoListModal" title="Delete image">
+                    <i class="bi bi-trash"></i>
+                </button>
+                {% endif %}
+            </li>
+            {% endfor %}
+        </ul>
+    </div>
+</li>

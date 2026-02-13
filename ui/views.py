@@ -11,10 +11,13 @@ from django.http import JsonResponse, HttpResponseForbidden
 from django.shortcuts import render, redirect
 from django.views.decorators.http import require_GET, require_POST
 
+from django.utils.text import slugify
+
 from .formating import format_time_difference, format_size
 from .registry_client import (
     get_registry_data,
     get_all_tag_counts,
+    get_tag_count,
     get_manifest_digest,
     delete_manifest,
     invalidate_cache,
@@ -79,11 +82,13 @@ def repository_list(request):
                 repo_info = {"full_name": repo, "name": parts[-1]}
                 current_level["repos"].append(repo_info)
 
-    def compute_counts_and_sort(ns_dict):
-        """Trier les sous-namespaces et calculer total_count récursivement."""
+    def compute_counts_and_sort(ns_dict, id_prefix):
+        """Trier les sous-namespaces, calculer total_count et collapse_id récursivement."""
+        ns_dict["collapse_id"] = id_prefix
         sorted_subs = {}
         for k in sorted(ns_dict["sub_namespaces"].keys()):
-            sorted_subs[k] = compute_counts_and_sort(ns_dict["sub_namespaces"][k])
+            sub_prefix = f"{id_prefix}-{slugify(k)}"
+            sorted_subs[k] = compute_counts_and_sort(ns_dict["sub_namespaces"][k], sub_prefix)
         ns_dict["sub_namespaces"] = sorted_subs
         ns_dict["total_count"] = len(ns_dict["repos"]) + len(ns_dict["sub_namespaces"])
         return ns_dict
@@ -92,10 +97,10 @@ def repository_list(request):
     ordered_namespaces = {}
     for k in sorted_keys:
         if k != "<default>":
-            ordered_namespaces[k] = compute_counts_and_sort(namespaces[k])
+            ordered_namespaces[k] = compute_counts_and_sort(namespaces[k], slugify(k))
 
     if "<default>" in namespaces:
-        ordered_namespaces["<default>"] = compute_counts_and_sort(namespaces["<default>"])
+        ordered_namespaces["<default>"] = compute_counts_and_sort(namespaces["<default>"], slugify("<default>"))
 
     context = {"namespaces": ordered_namespaces, "error_message": error_message}
     return render(request, "ui/repository_list.html", context)
@@ -249,7 +254,15 @@ def get_tag_details(request, repository):
 
 @require_GET
 def get_tag_counts(request):
-    """Return tag counts for all repositories"""
+    """Return tag counts for repositories. If ?repos=a,b,c is provided, count only those."""
+    repos_param = request.GET.get("repos", "").strip()
+    if repos_param:
+        repos = [r.strip() for r in repos_param.split(",") if r.strip()]
+        tag_counts = {}
+        for repo in repos:
+            tag_counts[repo] = get_tag_count(repo)
+        return JsonResponse(tag_counts)
+
     force = request.GET.get("force", "").lower() == "true"
     tag_counts = get_all_tag_counts(force_refresh=force)
     return JsonResponse(tag_counts)
