@@ -320,38 +320,72 @@ function initAdminDelete() {
 }
 
 /* ============================================
-   Async tag count loading (list page)
+   Async tag count loading (list page) — batch sequential
    ============================================ */
 function initTagCounts() {
     const tagElements = document.querySelectorAll('[data-repo-name]');
     if (tagElements.length === 0) return;
 
-    fetch('/ui/tag-counts/')
-        .then(response => {
-            if (!response.ok) throw new Error('Network response was not ok');
-            return response.json();
-        })
-        .then(data => {
-            tagElements.forEach(el => {
-                const repoName = el.getAttribute('data-repo-name');
-                const tagCount = data[repoName] || 0;
+    // Collect unique repo names preserving order
+    const seen = new Set();
+    const allRepos = [];
+    tagElements.forEach(el => {
+        const name = el.getAttribute('data-repo-name');
+        if (name && !seen.has(name)) {
+            seen.add(name);
+            allRepos.push(name);
+        }
+    });
 
-                if (tagCount > 0) {
-                    el.textContent = `${tagCount} tag${tagCount !== 1 ? 's' : ''}`;
-                    el.classList.add('tag-count-loaded');
-                } else {
-                    el.textContent = '0 tags';
-                    el.classList.add('tag-count-zero');
-                }
-            });
-        })
-        .catch(error => {
-            console.error('Error fetching tag counts:', error);
-            tagElements.forEach(el => {
+    // Split into batches of 10
+    const BATCH_SIZE = 10;
+    const batches = [];
+    for (let i = 0; i < allRepos.length; i += BATCH_SIZE) {
+        batches.push(allRepos.slice(i, i + BATCH_SIZE));
+    }
+
+    function applyTagCounts(data) {
+        tagElements.forEach(el => {
+            const repoName = el.getAttribute('data-repo-name');
+            if (!(repoName in data)) return;
+            const tagCount = data[repoName] || 0;
+
+            if (tagCount > 0) {
+                el.textContent = `${tagCount} tag${tagCount !== 1 ? 's' : ''}`;
+                el.classList.add('tag-count-loaded');
+            } else {
+                el.textContent = '0 tags';
+                el.classList.add('tag-count-zero');
+            }
+        });
+    }
+
+    function markError(repoNames) {
+        tagElements.forEach(el => {
+            const repoName = el.getAttribute('data-repo-name');
+            if (repoNames.includes(repoName)) {
                 el.textContent = 'Error';
                 el.classList.add('tag-count-error');
-            });
+            }
         });
+    }
+
+    async function fetchBatches() {
+        for (const batch of batches) {
+            try {
+                const params = new URLSearchParams({ repos: batch.join(',') });
+                const response = await fetch(`/ui/tag-counts/?${params}`);
+                if (!response.ok) throw new Error('Network response was not ok');
+                const data = await response.json();
+                applyTagCounts(data);
+            } catch (error) {
+                console.error('Error fetching tag counts batch:', error);
+                markError(batch);
+            }
+        }
+    }
+
+    fetchBatches();
 }
 
 /* ============================================

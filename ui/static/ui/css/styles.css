@@ -19,8 +19,6 @@
     --folder-text: #495057;
     --folder-hover: #212529;
     --folder-bg: #e9ecef;
-    --folder-bg-l2: #f0f2f5;
-    --folder-bg-l3: #f5f6f8;
     --badge-bg: #e9ecef;
     --badge-text: #495057;
     --btn-subtle-color: #495057;
@@ -51,8 +49,6 @@
     --folder-text: #a0a0a0;
     --folder-hover: #e2e3e5;
     --folder-bg: #343a40;
-    --folder-bg-l2: #2e3236;
-    --folder-bg-l3: #292c30;
     --badge-bg: #343a40;
     --badge-text: #e2e3e5;
     --btn-subtle-color: #adb5bd;
@@ -195,6 +191,7 @@ a:hover {
     color: var(--folder-text) !important;
     transition: color 0.2s ease, background-color 0.2s ease;
     cursor: pointer;
+    padding-left: calc(1rem + var(--depth, 0) * 1.5rem) !important;
 }
 
 .folder-header:hover {
@@ -204,14 +201,6 @@ a:hover {
 .folder-header i {
     color: inherit;
     transition: color 0.2s ease;
-}
-
-.folder-level-2 {
-    background-color: var(--folder-bg-l2) !important;
-}
-
-.folder-level-3 {
-    background-color: var(--folder-bg-l3) !important;
 }
 
 /* Chevron animation */
@@ -304,6 +293,7 @@ a:hover {
    ============================================ */
 .repo-item {
     transition: background-color 0.15s ease, padding-left 0.15s ease;
+    padding-left: calc(2.5rem + var(--depth, 0) * 1.5rem) !important;
 }
 
 .repo-item:hover {
