@@ -389,6 +389,225 @@ function initTagCounts() {
 }
 
 /* ============================================
+   Admin stats page — progressive loader
+   ============================================ */
+function formatBytes(bytes) {
+    if (!bytes || bytes <= 0) return '0 B';
+    const units = ['B', 'KB', 'MB', 'GB', 'TB', 'PB'];
+    let i = 0;
+    let v = bytes;
+    while (v >= 1024 && i < units.length - 1) {
+        v /= 1024;
+        i++;
+    }
+    return `${v.toFixed(v >= 10 || i === 0 ? 0 : 2)} ${units[i]}`;
+}
+
+function initAdminStats() {
+    const root = document.getElementById('adminStats');
+    if (!root) return;
+
+    const els = {
+        repos: document.getElementById('kpiRepos'),
+        tags: document.getElementById('kpiTags'),
+        size: document.getElementById('kpiSize'),
+        empty: document.getElementById('kpiEmpty'),
+        progressBar: document.getElementById('statsProgressBar'),
+        progressLabel: document.getElementById('statsProgressLabel'),
+        progressCounter: document.getElementById('statsProgressCounter'),
+        emptyCard: document.getElementById('emptyReposCard'),
+        emptyList: document.getElementById('emptyReposList'),
+        topSize: document.getElementById('topBySizeBody'),
+        topTags: document.getElementById('topByTagsBody'),
+        errorBox: document.getElementById('statsError'),
+        errorMessage: document.getElementById('statsErrorMessage'),
+        errorsCard: document.getElementById('statsErrorsCard'),
+        errorsList: document.getElementById('statsErrorsList'),
+        refreshBtn: document.getElementById('statsRefreshBtn'),
+    };
+
+    const TOP_N = 10;
+    const CONCURRENCY = 4;
+
+    let state = null;
+
+    function showError(msg) {
+        els.errorMessage.textContent = msg;
+        els.errorBox.classList.remove('d-none');
+    }
+
+    function clearError() {
+        els.errorBox.classList.add('d-none');
+    }
+
+    function renderEmptyRepos(empty) {
+        if (!empty.length) {
+            els.emptyCard.classList.add('d-none');
+            return;
+        }
+        els.emptyCard.classList.remove('d-none');
+        els.emptyList.innerHTML = empty
+            .map(repo => `
+                <li class="list-group-item d-flex justify-content-between align-items-center">
+                    <span><i class="bi bi-box me-2 text-muted"></i>${repo}</span>
+                    <span class="badge bg-secondary">0 tags</span>
+                </li>`)
+            .join('');
+    }
+
+    function renderTopBySize() {
+        const top = state.perRepo
+            .filter(r => r.size > 0)
+            .sort((a, b) => b.size - a.size)
+            .slice(0, TOP_N);
+
+        if (!top.length) {
+            els.topSize.innerHTML = '<tr><td colspan="3" class="text-muted text-center">No data yet…</td></tr>';
+            return;
+        }
+        els.topSize.innerHTML = top
+            .map(r => `
+                <tr>
+                    <td><a href="/ui/repositories/${encodeURI(r.repository)}/">${r.repository}</a></td>
+                    <td class="text-right">${r.tags}</td>
+                    <td class="text-right">${formatBytes(r.size)}</td>
+                </tr>`)
+            .join('');
+    }
+
+    function renderTopByTags() {
+        const top = Object.entries(state.tagCounts)
+            .filter(([, n]) => n > 0)
+            .sort((a, b) => b[1] - a[1])
+            .slice(0, TOP_N);
+
+        if (!top.length) {
+            els.topTags.innerHTML = '<tr><td colspan="2" class="text-muted text-center">No data</td></tr>';
+            return;
+        }
+        els.topTags.innerHTML = top
+            .map(([repo, count]) => `
+                <tr>
+                    <td><a href="/ui/repositories/${encodeURI(repo)}/">${repo}</a></td>
+                    <td class="text-right">${count}</td>
+                </tr>`)
+            .join('');
+    }
+
+    function pushError(repo, msg) {
+        state.errors.push({ repository: repo, error: msg });
+        els.errorsCard.classList.remove('d-none');
+        const li = document.createElement('li');
+        li.className = 'list-group-item';
+        li.innerHTML = `<code>${repo}</code> — <span class="text-muted"></span>`;
+        li.querySelector('span').textContent = msg;
+        els.errorsList.appendChild(li);
+    }
+
+    function updateProgress() {
+        const total = state.reposToProcess.length;
+        const done = state.processed;
+        const pct = total > 0 ? (done / total) * 100 : 100;
+        els.progressBar.style.width = `${pct}%`;
+        els.progressCounter.textContent = `${done} / ${total}`;
+        if (done === total) {
+            els.progressLabel.textContent = total === 0 ? 'No repositories to scan.' : 'Done.';
+        } else {
+            els.progressLabel.textContent = 'Scanning repositories…';
+        }
+    }
+
+    async function fetchRepoStats(repo) {
+        const url = `/ui/admin/stats/repo/${encodeURI(repo)}/${state.force ? '?refresh=true' : ''}`;
+        try {
+            const resp = await fetch(url);
+            if (!resp.ok) {
+                const body = await resp.json().catch(() => ({}));
+                throw new Error(body.error || `HTTP ${resp.status}`);
+            }
+            const data = await resp.json();
+            state.perRepo.push({
+                repository: data.repository,
+                tags: data.tags,
+                size: data.size,
+            });
+            state.totalSize += data.size || 0;
+            els.size.textContent = formatBytes(state.totalSize);
+            renderTopBySize();
+            (data.errors || []).forEach(e => pushError(`${repo}:${e.tag}`, e.error));
+        } catch (err) {
+            pushError(repo, err.message || String(err));
+        } finally {
+            state.processed += 1;
+            updateProgress();
+        }
+    }
+
+    async function runWorkers() {
+        const queue = state.reposToProcess.slice();
+        const workers = Array.from({ length: Math.min(CONCURRENCY, queue.length) }, async () => {
+            while (queue.length) {
+                const repo = queue.shift();
+                await fetchRepoStats(repo);
+            }
+        });
+        await Promise.all(workers);
+    }
+
+    async function load(force) {
+        clearError();
+        state = {
+            force: !!force,
+            perRepo: [],
+            tagCounts: {},
+            reposToProcess: [],
+            processed: 0,
+            totalSize: 0,
+            errors: [],
+        };
+        els.errorsCard.classList.add('d-none');
+        els.errorsList.innerHTML = '';
+        els.size.textContent = '—';
+        els.topSize.innerHTML = '<tr><td colspan="3" class="text-muted text-center">Waiting for data…</td></tr>';
+        els.topTags.innerHTML = '<tr><td colspan="2" class="text-muted text-center">Waiting for data…</td></tr>';
+        els.progressBar.style.width = '0%';
+        els.progressCounter.textContent = '';
+        els.progressLabel.textContent = 'Loading summary…';
+        els.refreshBtn.disabled = true;
+
+        try {
+            const resp = await fetch(`/ui/admin/stats/summary/${force ? '?refresh=true' : ''}`);
+            if (!resp.ok) {
+                const body = await resp.json().catch(() => ({}));
+                throw new Error(body.error || `HTTP ${resp.status}`);
+            }
+            const summary = await resp.json();
+
+            els.repos.textContent = summary.total_repositories;
+            els.tags.textContent = summary.total_tags;
+            els.empty.textContent = summary.empty_repositories.length;
+            state.tagCounts = summary.tag_counts || {};
+            renderTopByTags();
+            renderEmptyRepos(summary.empty_repositories || []);
+
+            state.reposToProcess = (summary.repositories || []).filter(
+                r => (summary.tag_counts[r] || 0) > 0
+            );
+            updateProgress();
+
+            await runWorkers();
+        } catch (err) {
+            showError(err.message || String(err));
+        } finally {
+            els.refreshBtn.disabled = false;
+        }
+    }
+
+    els.refreshBtn.addEventListener('click', () => load(true));
+    load(false);
+}
+
+/* ============================================
    Initialize everything on DOMContentLoaded
    ============================================ */
 document.addEventListener('DOMContentLoaded', function () {
@@ -398,4 +617,5 @@ document.addEventListener('DOMContentLoaded', function () {
     initTagDetails();
     initAdminDelete();
     initTagCounts();
+    initAdminStats();
 });

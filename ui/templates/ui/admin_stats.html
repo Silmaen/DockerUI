@@ -1,0 +1,151 @@
+{% extends "ui/base.html" %}
+
+{% block content %}
+<div class="container mt-4" id="adminStats">
+    <div class="d-flex justify-content-between align-items-center mb-4">
+        <h1 class="mb-0"><i class="bi bi-speedometer2 me-2"></i>Registry Stats</h1>
+        <button type="button" class="btn btn-subtle" id="statsRefreshBtn">
+            <i class="bi bi-arrow-clockwise me-1"></i> Refresh
+        </button>
+    </div>
+
+    <div class="alert alert-danger d-none" id="statsError" role="alert">
+        <i class="bi bi-exclamation-triangle me-2"></i>
+        <span id="statsErrorMessage"></span>
+    </div>
+
+    <div class="card mb-4">
+        <div class="card-header">
+            <h2 class="h5 mb-0"><i class="bi bi-hdd-network me-2"></i>Registry</h2>
+        </div>
+        <div class="card-body">
+            <dl class="row mb-0">
+                <dt class="col-sm-3">URL</dt>
+                <dd class="col-sm-9"><code>{{ registry_url }}</code></dd>
+                <dt class="col-sm-3">Type</dt>
+                <dd class="col-sm-9">{{ registry_type }}</dd>
+                {% if registry_repo %}
+                <dt class="col-sm-3">Namespace prefix</dt>
+                <dd class="col-sm-9"><code>{{ registry_repo }}</code></dd>
+                {% endif %}
+            </dl>
+        </div>
+    </div>
+
+    <div class="row g-3 mb-3">
+        <div class="col-sm-6 col-lg-3">
+            <div class="card h-100">
+                <div class="card-body text-center">
+                    <div class="text-muted small text-uppercase">Repositories</div>
+                    <div class="display-6 fw-semibold" id="kpiRepos">—</div>
+                </div>
+            </div>
+        </div>
+        <div class="col-sm-6 col-lg-3">
+            <div class="card h-100">
+                <div class="card-body text-center">
+                    <div class="text-muted small text-uppercase">Total tags</div>
+                    <div class="display-6 fw-semibold" id="kpiTags">—</div>
+                </div>
+            </div>
+        </div>
+        <div class="col-sm-6 col-lg-3">
+            <div class="card h-100">
+                <div class="card-body text-center">
+                    <div class="text-muted small text-uppercase">Storage</div>
+                    <div class="display-6 fw-semibold" id="kpiSize">—</div>
+                    <div class="text-muted small" id="kpiSizeNote">sum of per-repo sizes</div>
+                </div>
+            </div>
+        </div>
+        <div class="col-sm-6 col-lg-3">
+            <div class="card h-100">
+                <div class="card-body text-center">
+                    <div class="text-muted small text-uppercase">Empty repos</div>
+                    <div class="display-6 fw-semibold" id="kpiEmpty">—</div>
+                    <div class="text-muted small">GC candidates</div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="mb-4">
+        <div class="d-flex justify-content-between align-items-center mb-1">
+            <small class="text-muted" id="statsProgressLabel">Loading summary…</small>
+            <small class="text-muted" id="statsProgressCounter"></small>
+        </div>
+        <div class="progress" style="height: 0.5rem;">
+            <div class="progress-bar" role="progressbar" id="statsProgressBar" style="width: 0%"></div>
+        </div>
+    </div>
+
+    <div class="card mb-4 d-none" id="emptyReposCard">
+        <div class="card-header">
+            <h2 class="h5 mb-0"><i class="bi bi-trash3 me-2"></i>Empty repositories</h2>
+        </div>
+        <div class="card-body">
+            <p class="text-muted small mb-3">
+                These repositories have no tags but still appear in the catalog. Run
+                <code>registry garbage-collect -m</code> on the registry host to free their storage.
+            </p>
+            <ul class="list-group list-group-flush" id="emptyReposList"></ul>
+        </div>
+    </div>
+
+    <div class="row g-3 mb-4">
+        <div class="col-lg-6">
+            <div class="card h-100">
+                <div class="card-header">
+                    <h2 class="h5 mb-0"><i class="bi bi-hdd me-2"></i>Top 10 by size</h2>
+                </div>
+                <div class="card-body p-0">
+                    <table class="table mb-0">
+                        <thead>
+                            <tr>
+                                <th>Repository</th>
+                                <th class="text-right">Tags</th>
+                                <th class="text-right">Size</th>
+                            </tr>
+                        </thead>
+                        <tbody id="topBySizeBody">
+                            <tr><td colspan="3" class="text-muted text-center">Waiting for data…</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+        <div class="col-lg-6">
+            <div class="card h-100">
+                <div class="card-header">
+                    <h2 class="h5 mb-0"><i class="bi bi-tags me-2"></i>Top 10 by tag count</h2>
+                </div>
+                <div class="card-body p-0">
+                    <table class="table mb-0">
+                        <thead>
+                            <tr>
+                                <th>Repository</th>
+                                <th class="text-right">Tags</th>
+                            </tr>
+                        </thead>
+                        <tbody id="topByTagsBody">
+                            <tr><td colspan="2" class="text-muted text-center">Waiting for data…</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="card mb-4 d-none" id="statsErrorsCard">
+        <div class="card-header">
+            <h2 class="h5 mb-0 text-warning"><i class="bi bi-exclamation-triangle me-2"></i>Collection errors</h2>
+        </div>
+        <div class="card-body">
+            <p class="text-muted small mb-3">
+                Some items could not be read. Stats above exclude them.
+            </p>
+            <ul class="list-group list-group-flush" id="statsErrorsList"></ul>
+        </div>
+    </div>
+</div>
+{% endblock %}

@@ -170,3 +170,83 @@ def invalidate_cache(repository):
     cache.delete(f"registry_{repository}/tags/list")
     cache.delete("registry__catalog")
     cache.delete("repository_tag_counts")
+    cache.delete(f"registry_repo_stats_{repository}")
+
+
+def _collect_manifest_blobs(repository, reference, seen):
+    """Recursively walk a manifest (or manifest list) and add (digest, size) pairs to `seen`.
+
+    `seen` is a dict {digest: size} used for cross-repo deduplication.
+    Returns the sum of unique blob sizes added by this call (not the full repo size).
+    """
+    manifest = get_registry_data(f"{repository}/manifests/{reference}")
+    if not manifest:
+        return 0
+
+    added = 0
+
+    # Manifest list (multi-arch / OCI index)
+    if manifest.get("manifests"):
+        for entry in manifest["manifests"]:
+            digest = entry.get("digest")
+            if not digest:
+                continue
+            added += _collect_manifest_blobs(repository, digest, seen)
+        return added
+
+    # Single-arch manifest: config + layers
+    config = manifest.get("config") or {}
+    config_digest = config.get("digest")
+    if config_digest and config_digest not in seen:
+        seen[config_digest] = config.get("size", 0)
+        added += config.get("size", 0)
+
+    for layer in manifest.get("layers", []):
+        digest = layer.get("digest")
+        if not digest or digest in seen:
+            continue
+        size = layer.get("size", 0)
+        seen[digest] = size
+        added += size
+
+    return added
+
+
+def get_repo_stats(repository, force_refresh=False):
+    """Return per-repo stats: {tags, size, blobs}. Cached for 5 minutes.
+
+    `size` is the sum of unique blob sizes within this repo (deduped by digest).
+    `blobs` is the unique blob digest count.
+    """
+    cache_key = f"registry_repo_stats_{repository}"
+    if not force_refresh:
+        cached = cache.get(cache_key)
+        if cached is not None:
+            return cached
+
+    tags_data = get_registry_data(f"{repository}/tags/list")
+    tags = tags_data.get("tags", []) if tags_data else []
+
+    repo_blobs = {}
+    errors = []
+    for tag in tags:
+        try:
+            _collect_manifest_blobs(repository, tag, repo_blobs)
+        except Exception as e:
+            logger.error(f"Error reading manifest {repository}:{tag}: {e}")
+            errors.append({"tag": tag, "error": str(e)})
+
+    result = {
+        "repository": repository,
+        "tags": len(tags),
+        "size": sum(repo_blobs.values()),
+        "blobs": len(repo_blobs),
+        "errors": errors,
+    }
+    cache.set(cache_key, result, 300)
+    return result
+
+
+def invalidate_repo_stats(repository):
+    """Purge per-repo stats cache entry."""
+    cache.delete(f"registry_repo_stats_{repository}")
