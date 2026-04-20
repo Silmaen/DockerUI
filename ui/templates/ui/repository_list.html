@@ -3,7 +3,14 @@
 
 {% block content %}
 <div class="container mt-4">
-    <h1 class="mb-4">Docker Images</h1>
+    <div class="d-flex justify-content-between align-items-center mb-4">
+        <h1 class="mb-0">Docker Images</h1>
+        {% if is_admin %}
+        <a href="{% url 'ui:registry_stats' %}" class="btn btn-subtle">
+            <i class="bi bi-speedometer2 me-1"></i> Registry Stats
+        </a>
+        {% endif %}
+    </div>
 
     {% if error_message %}
     <div class="alert alert-danger">

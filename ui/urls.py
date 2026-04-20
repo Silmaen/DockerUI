@@ -11,10 +11,10 @@ urlpatterns = [
     path("tag-counts/", views.get_tag_counts, name="tag_counts"),
     path("admin/login/", views.admin_login, name="admin_login"),
     path("admin/logout/", views.admin_logout, name="admin_logout"),
-    path("admin/stats/", views.registry_stats, name="registry_stats"),
-    path("admin/stats/summary/", views.registry_stats_summary, name="registry_stats_summary"),
+    path("stats/", views.registry_stats, name="registry_stats"),
+    path("stats/summary/", views.registry_stats_summary, name="registry_stats_summary"),
     re_path(
-        r"^admin/stats/repo/(?P<repository>.+)/$",
+        r"^stats/repo/(?P<repository>.+)/$",
         views.registry_stats_repo,
         name="registry_stats_repo",
     ),
