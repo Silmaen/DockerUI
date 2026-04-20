@@ -15,6 +15,7 @@ services:
       # application settings
       - DEBUG=${DEBUG}
       - SECRET_KEY=${SECRET_KEY}
+      - CSRF_TRUSTED_ORIGINS=${CSRF_TRUSTED_ORIGINS}
       # Authentication credentials
       - REGISTRY_USERNAME=${REGISTRY_USERNAME}
       - REGISTRY_PASSWORD=${REGISTRY_PASSWORD}
