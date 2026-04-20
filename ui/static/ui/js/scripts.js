@@ -518,7 +518,7 @@ function initAdminStats() {
     }
 
     async function fetchRepoStats(repo) {
-        const url = `/ui/admin/stats/repo/${encodeURI(repo)}/${state.force ? '?refresh=true' : ''}`;
+        const url = `/ui/stats/repo/${encodeURI(repo)}/${state.force ? '?refresh=true' : ''}`;
         try {
             const resp = await fetch(url);
             if (!resp.ok) {
@@ -576,7 +576,7 @@ function initAdminStats() {
         els.refreshBtn.disabled = true;
 
         try {
-            const resp = await fetch(`/ui/admin/stats/summary/${force ? '?refresh=true' : ''}`);
+            const resp = await fetch(`/ui/stats/summary/${force ? '?refresh=true' : ''}`);
             if (!resp.ok) {
                 const body = await resp.json().catch(() => ({}));
                 throw new Error(body.error || `HTTP ${resp.status}`);
