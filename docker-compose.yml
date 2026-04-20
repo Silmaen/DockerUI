@@ -5,7 +5,7 @@ services:
     restart: unless-stopped
     mem_limit: 512m
     ports:
-      - "${PORT:-8000}:8000"
+      - "${PORT:-8000ok}:8000"
     environment:
       # registry settings
       - REGISTRY_URL=${REGISTRY_URL}

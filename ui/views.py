@@ -21,6 +21,7 @@ from .registry_client import (
     get_manifest_digest,
     delete_manifest,
     invalidate_cache,
+    get_repo_stats,
 )
 
 logger = logging.getLogger(__name__)
@@ -283,6 +284,62 @@ def admin_login(request):
             messages.error(request, "Invalid password.")
 
     return render(request, "ui/admin_login.html")
+
+
+def registry_stats(request):
+    """Admin-only registry statistics page (shell; data loaded via JS)."""
+    if not request.session.get("is_admin", False):
+        return HttpResponseForbidden("Admin access required.")
+
+    context = {
+        "registry_url": settings.REGISTRY_URL,
+        "registry_type": settings.REGISTRY_TYPE,
+        "registry_repo": settings.REGISTRY_REPO,
+    }
+    return render(request, "ui/admin_stats.html", context)
+
+
+@require_GET
+def registry_stats_summary(request):
+    """Return quick stats: repo list, tag counts per repo, empty repos."""
+    if not request.session.get("is_admin", False):
+        return HttpResponseForbidden("Admin access required.")
+
+    force = request.GET.get("refresh", "").lower() == "true"
+    try:
+        tag_counts = get_all_tag_counts(force_refresh=force)
+    except requests.exceptions.RequestException as e:
+        return JsonResponse({"error": str(e)}, status=502)
+
+    repositories = sorted(tag_counts.keys())
+    empty = [r for r in repositories if not tag_counts.get(r)]
+    total_tags = sum(tag_counts.values())
+
+    return JsonResponse(
+        {
+            "repositories": repositories,
+            "tag_counts": tag_counts,
+            "empty_repositories": empty,
+            "total_repositories": len(repositories),
+            "total_tags": total_tags,
+        }
+    )
+
+
+@require_GET
+def registry_stats_repo(request, repository):
+    """Return per-repo stats (tags, deduped size, blob count)."""
+    if not request.session.get("is_admin", False):
+        return HttpResponseForbidden("Admin access required.")
+
+    force = request.GET.get("refresh", "").lower() == "true"
+    try:
+        stats = get_repo_stats(repository, force_refresh=force)
+    except requests.exceptions.RequestException as e:
+        return JsonResponse({"error": str(e), "repository": repository}, status=502)
+
+    stats["size_human"] = format_size(stats["size"]) if stats["size"] else "0 B"
+    return JsonResponse(stats)
 
 
 @require_POST
