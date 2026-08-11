@@ -11,14 +11,17 @@
             document.documentElement.setAttribute('data-bs-theme', theme);
         })();
     </script>
-    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.8/dist/css/bootstrap.min.css" rel="stylesheet">
-    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.13.1/font/bootstrap-icons.css">
     {% load static %}
+    <!-- Bootstrap is served from here, not from a CDN: see ui/static/ui/vendor/README.md -->
+    <link rel="stylesheet" href="{% static 'ui/vendor/bootstrap.min.css' %}">
+    <link rel="stylesheet" href="{% static 'ui/vendor/bootstrap-icons.css' %}">
     <link rel="stylesheet" href="{% static 'ui/css/styles.css' %}">
-    <link rel="icon" type="image/png" href="{% static 'ui/img/favicon.svg' %}">
-    <link rel="shortcut icon" type="image/x-icon" href="{% static 'ui/img/favicon.svg' %}">
-    <script src="{% static 'ui/js/scripts.js' %}"></script>
-    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.8/dist/js/bootstrap.bundle.min.js"></script>
+    <link rel="icon" type="image/svg+xml" href="{% static 'ui/img/favicon.svg' %}">
+    <!-- Both deferred: every init() in scripts.js runs on DOMContentLoaded anyway, and
+         undeferred scripts in <head> block the parser before anything is painted.
+         Order is preserved between deferred scripts, so bootstrap is defined first. -->
+    <script defer src="{% static 'ui/vendor/bootstrap.bundle.min.js' %}"></script>
+    <script defer src="{% static 'ui/js/scripts.js' %}"></script>
     {% block extra_css %}{% endblock %}
 </head>
 <body>

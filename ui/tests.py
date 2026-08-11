@@ -388,3 +388,32 @@ class ConcurrencyTests(SimpleTestCase):
         self.assertEqual(with_auth.auth, ("bob", "pw"))
         with override_settings(REGISTRY_USERNAME="", REGISTRY_PASSWORD=""):
             self.assertIsNone(registry_client.get_registry_session().auth)
+
+
+@override_settings(ADMIN_PASSWORD="s3cret", ADMIN_LOGIN_MAX_ATTEMPTS=10)
+class StatsSummaryTests(SimpleTestCase):
+    """An unreadable repository is not an empty one."""
+
+    def setUp(self):
+        cache.clear()
+        self.addCleanup(cache.clear)
+        # Through the real login: with signed-cookie sessions, assigning to
+        # `self.client.session` does not set the client's cookie.
+        self.client.post("/ui/admin/login/", {"password": "s3cret"})
+
+    def test_unreadable_repository_is_not_offered_for_collection(self):
+        counts = {"team/full": 3, "team/empty": 0, "team/broken": None}
+        with mock.patch.object(views, "get_all_tag_counts", return_value=counts):
+            payload = self.client.get("/ui/stats/summary/").json()
+        self.assertEqual(payload["empty_repositories"], ["team/empty"])
+        self.assertEqual(payload["unreadable_repositories"], ["team/broken"])
+        self.assertEqual(payload["total_tags"], 3)
+        self.assertEqual(payload["total_repositories"], 3)
+
+    def test_failed_tag_count_is_none_not_zero(self):
+        with mock.patch.object(
+            registry_client,
+            "get_registry_data",
+            side_effect=requests.exceptions.ConnectionError("down"),
+        ):
+            self.assertIsNone(registry_client.get_tag_count("team/image"))

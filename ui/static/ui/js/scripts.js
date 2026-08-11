@@ -348,9 +348,14 @@ function initTagCounts() {
         tagElements.forEach(el => {
             const repoName = el.getAttribute('data-repo-name');
             if (!(repoName in data)) return;
-            const tagCount = data[repoName] || 0;
+            const tagCount = data[repoName];
 
-            if (tagCount > 0) {
+            if (tagCount === null || tagCount === undefined) {
+                // The registry could not answer for this one. Saying "0 tags" here
+                // reads as "safe to delete", which is the opposite of the truth.
+                el.textContent = 'Error';
+                el.classList.add('tag-count-error');
+            } else if (tagCount > 0) {
                 el.textContent = `${tagCount} tag${tagCount !== 1 ? 's' : ''}`;
                 el.classList.add('tag-count-loaded');
             } else {
@@ -589,6 +594,10 @@ function initAdminStats() {
             state.tagCounts = summary.tag_counts || {};
             renderTopByTags();
             renderEmptyRepos(summary.empty_repositories || []);
+            // Reported apart from the empty ones: unknown is not zero.
+            (summary.unreadable_repositories || []).forEach(
+                repo => pushError(repo, 'tag list could not be read')
+            );
 
             state.reposToProcess = (summary.repositories || []).filter(
                 r => (summary.tag_counts[r] || 0) > 0

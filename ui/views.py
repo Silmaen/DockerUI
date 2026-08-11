@@ -376,14 +376,19 @@ def registry_stats_summary(request):
         return JsonResponse({"error": str(e)}, status=502)
 
     repositories = sorted(tag_counts.keys())
-    empty = [r for r in repositories if not tag_counts.get(r)]
-    total_tags = sum(tag_counts.values())
+    # `not tag_counts.get(r)` also caught None, so a repository the registry failed
+    # to answer for was reported as empty -- and empty repositories are what this
+    # page recommends garbage-collecting.
+    empty = [r for r in repositories if tag_counts.get(r) == 0]
+    total_tags = sum(count for count in tag_counts.values() if count)
+    unreadable = sorted(r for r, count in tag_counts.items() if count is None)
 
     return JsonResponse(
         {
             "repositories": repositories,
             "tag_counts": tag_counts,
             "empty_repositories": empty,
+            "unreadable_repositories": unreadable,
             "total_repositories": len(repositories),
             "total_tags": total_tags,
         }
