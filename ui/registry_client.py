@@ -169,13 +169,18 @@ def get_registry_data(endpoint):
 
 
 def get_tag_count(repository):
-    """Get tag count for a single repository"""
+    """Tag count for one repository, or None if it could not be read.
+
+    None rather than 0: a repository whose tag list failed is not an empty
+    repository, and the stats page offers empty repositories up as garbage
+    collection candidates.
+    """
     try:
         tags_data = get_registry_data(f"{repository}/tags/list")
         return len(tags_data.get("tags", [])) if tags_data else 0
     except Exception as e:
         logger.error(f"Error getting tags for {repository}: {str(e)}")
-        return 0
+        return None
 
 
 def get_tag_counts_for(repositories):
