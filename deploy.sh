@@ -243,10 +243,12 @@ build_image() {
 run_tests() {
     local target="${1:-}"
     step "Tests${target:+ ($target)}"
-    # Throwaway container, no network dependency on the running service: the tests
-    # must never talk to the real registry.
+    # Throwaway container, no network dependency on the running service, and
+    # settings that point at no registry at all: the tests must never talk to a
+    # real one.
     run docker compose run --rm --no-deps "$SERVICE" \
-        "${MANAGE[@]}" test ${target:+"$target"} --noinput
+        "${MANAGE[@]}" test ${target:+"$target"} --noinput \
+        --settings=DockerUI.settings_test
     ok "tests passed"
 }
 

@@ -1,4 +1,5 @@
-from django.test import SimpleTestCase
+from django.core.cache import cache
+from django.test import SimpleTestCase, override_settings
 from django.urls import Resolver404, resolve, reverse
 
 from .registry_client import check_endpoint
@@ -71,3 +72,73 @@ class CheckEndpointTests(SimpleTestCase):
             with self.subTest(endpoint=endpoint):
                 with self.assertRaises(ValueError):
                     check_endpoint(endpoint)
+
+
+@override_settings(
+    ADMIN_PASSWORD="s3cret",
+    ADMIN_LOGIN_MAX_ATTEMPTS=3,
+    ADMIN_LOGIN_LOCKOUT_SECONDS=300,
+    TRUST_PROXY=False,
+)
+class AdminLoginTests(SimpleTestCase):
+    """Admin mode is a shared password, so the throttle is the only brake."""
+
+    url = "/ui/admin/login/"
+
+    def setUp(self):
+        # The throttle counter lives in the cache, which is shared between tests.
+        cache.clear()
+        self.addCleanup(cache.clear)
+
+    def test_good_password_activates_admin_mode(self):
+        response = self.client.post(self.url, {"password": "s3cret"})
+        self.assertRedirects(response, "/ui/repositories/", fetch_redirect_response=False)
+        self.assertTrue(self.client.session["is_admin"])
+
+    def test_bad_password_does_not(self):
+        response = self.client.post(self.url, {"password": "nope"})
+        self.assertEqual(response.status_code, 200)
+        self.assertFalse(self.client.session.get("is_admin", False))
+
+    def test_attempts_are_capped(self):
+        for _ in range(3):
+            self.client.post(self.url, {"password": "nope"})
+        # Locked out: even the right password stops being accepted.
+        response = self.client.post(self.url, {"password": "s3cret"})
+        self.assertEqual(response.status_code, 200)
+        self.assertFalse(self.client.session.get("is_admin", False))
+
+    def test_success_clears_the_counter(self):
+        self.client.post(self.url, {"password": "nope"})
+        self.client.post(self.url, {"password": "s3cret"})
+        self.assertIsNone(cache.get("admin_login_failures_127.0.0.1"))
+
+    def test_forwarded_for_is_ignored_without_a_trusted_proxy(self):
+        # Otherwise an attacker invents a new X-Forwarded-For per request and the
+        # per-address budget never runs out.
+        for i in range(3):
+            self.client.post(
+                self.url, {"password": "nope"}, HTTP_X_FORWARDED_FOR=f"10.0.0.{i}"
+            )
+        self.assertEqual(cache.get("admin_login_failures_127.0.0.1"), 3)
+
+    @override_settings(ADMIN_PASSWORD="")
+    def test_disabled_admin_mode_redirects_away(self):
+        response = self.client.get(self.url)
+        self.assertRedirects(response, "/ui/repositories/", fetch_redirect_response=False)
+
+
+class AdminGatingTests(SimpleTestCase):
+    """Every admin endpoint re-checks the session flag."""
+
+    def test_admin_endpoints_refuse_anonymous_callers(self):
+        for method, url in (
+            ("get", "/ui/stats/"),
+            ("get", "/ui/stats/summary/"),
+            ("get", "/ui/stats/repo/team/image/"),
+            ("post", "/ui/repositories/team/image/delete-tag/"),
+            ("post", "/ui/repositories/team/image/delete/"),
+        ):
+            with self.subTest(url=url):
+                response = getattr(self.client, method)(url)
+                self.assertEqual(response.status_code, 403)
