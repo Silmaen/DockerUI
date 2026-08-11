@@ -1,12 +1,13 @@
 # ui/views.py
 
+import hmac
 import logging
 from datetime import datetime
 
 import requests
-import urllib3
 from django.conf import settings
 from django.contrib import messages
+from django.core.cache import cache
 from django.http import JsonResponse, HttpResponseForbidden
 from django.shortcuts import render, redirect
 from django.views.decorators.http import require_GET, require_POST
@@ -25,9 +26,6 @@ from .registry_client import (
 )
 
 logger = logging.getLogger(__name__)
-
-# Disable SSL warnings
-urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 
 def repository_list(request):
@@ -269,18 +267,61 @@ def get_tag_counts(request):
     return JsonResponse(tag_counts)
 
 
+def _client_address(request):
+    """Best guess at the caller's address, for throttling purposes.
+
+    X-Forwarded-For is only read when the deployment says a proxy is in front:
+    otherwise any client could send that header and get a fresh attempt budget for
+    every value it invents.
+    """
+    if settings.TRUST_PROXY:
+        forwarded = request.META.get("HTTP_X_FORWARDED_FOR", "")
+        if forwarded:
+            return forwarded.split(",")[0].strip()
+    return request.META.get("REMOTE_ADDR") or "unknown"
+
+
+def _password_matches(candidate):
+    """Compare against ADMIN_PASSWORD without leaking its length through timing."""
+    return hmac.compare_digest(
+        candidate.encode("utf-8", "surrogatepass"),
+        settings.ADMIN_PASSWORD.encode("utf-8", "surrogatepass"),
+    )
+
+
 def admin_login(request):
-    """Admin login view."""
+    """Admin login view.
+
+    A single shared password, deliberately -- but a single shared password with no
+    limit on attempts is a password that gets guessed offline-fast, so failures are
+    counted per client address in the (process-shared) cache.
+    """
     if not settings.ADMIN_PASSWORD:
         return redirect("ui:repository_list")
 
-    if request.method == "POST":
-        password = request.POST.get("password", "")
-        if password == settings.ADMIN_PASSWORD:
+    address = _client_address(request)
+    throttle_key = f"admin_login_failures_{address}"
+    failures = cache.get(throttle_key, 0)
+    locked_out = failures >= settings.ADMIN_LOGIN_MAX_ATTEMPTS
+
+    if locked_out:
+        messages.error(
+            request,
+            f"Too many failed attempts. Try again in "
+            f"{settings.ADMIN_LOGIN_LOCKOUT_SECONDS // 60} minutes.",
+        )
+    elif request.method == "POST":
+        if _password_matches(request.POST.get("password", "")):
             request.session["is_admin"] = True
+            cache.delete(throttle_key)
+            logger.info(f"Admin mode activated from {address}")
             messages.success(request, "Admin mode activated.")
             return redirect("ui:repository_list")
         else:
+            # Refreshing the TTL on every failure means a persistent attacker stays
+            # locked out instead of getting a new budget once the window rolls.
+            cache.set(throttle_key, failures + 1, settings.ADMIN_LOGIN_LOCKOUT_SECONDS)
+            logger.warning(f"Failed admin login from {address} (attempt {failures + 1})")
             messages.error(request, "Invalid password.")
 
     return render(request, "ui/admin_login.html")

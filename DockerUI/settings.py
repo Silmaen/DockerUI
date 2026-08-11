@@ -47,9 +47,11 @@ ALLOWED_HOSTS = env_list("ALLOWED_HOSTS") or ["*"]
 # localhost: without it Django rejects the admin login POST with an opaque 403.
 CSRF_TRUSTED_ORIGINS = env_list("CSRF_TRUSTED_ORIGINS")
 
-# Only meaningful behind a proxy that *always* sets X-Forwarded-Proto -- if a
-# client can set it, this lets it claim its plain HTTP request was secure.
-if env_flag("TRUST_PROXY_SSL_HEADER"):
+# Whether the X-Forwarded-* headers can be believed. Only true behind a proxy that
+# *always* overwrites them: if a client can set them, it can claim its plain HTTP
+# request was secure, and can forge the address the login throttle counts against.
+TRUST_PROXY = env_flag("TRUST_PROXY")
+if TRUST_PROXY:
     SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https")
 
 # Cookies restricted to HTTPS. Off by default: turning it on while serving plain

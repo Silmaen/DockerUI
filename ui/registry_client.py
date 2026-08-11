@@ -2,10 +2,18 @@
 import logging
 
 import requests
+import urllib3
 from django.conf import settings
 from django.core.cache import cache
 
 logger = logging.getLogger(__name__)
+
+# Silence the "unverified HTTPS request" warning only when unverified requests are
+# what the deployment asked for. It used to be disabled unconditionally at import
+# time, which also hid the warning from a deployment that had verification on and a
+# genuine certificate problem.
+if not settings.REGISTRY_SSL_VERIFY:
+    urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 
 def get_registry_session():
