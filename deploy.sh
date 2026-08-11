@@ -2,8 +2,8 @@
 #
 # All-in-one deployment for DockerUI: git, build, start, health check.
 #
-# Migrations and collectstatic are baked into the image at build time, so this
-# script does not repeat them.
+# collectstatic runs at image build time and the application has no database, so
+# this script has nothing to prepare before starting the container.
 #
 #   ./deploy.sh                 full deployment (pull + build + up + wait)
 #   ./deploy.sh --no-pull       fetch nothing: neither the git update nor the images
@@ -95,14 +95,6 @@ env_value() {
     fi
 }
 
-# docker compose substitutes an *empty string* for a variable that is missing from
-# .env, which silently overrides the Django default instead of falling back to it.
-# So a missing key here is not cosmetic: REGISTRY_URL= means the app talks to
-# nothing at all.
-REQUIRED_KEYS=(REGISTRY_URL REGISTRY_TYPE REGISTRY_REPO REGISTRY_SSL_VERIFY
-               DEBUG SECRET_KEY CSRF_TRUSTED_ORIGINS
-               REGISTRY_USERNAME REGISTRY_PASSWORD ADMIN_PASSWORD)
-
 check_env() {
     if [ ! -f .env ]; then
         warn ".env missing, copying .env_sample"
@@ -110,22 +102,17 @@ check_env() {
         fail "edit .env (at least REGISTRY_URL and SECRET_KEY) then run again."
     fi
 
-    local key missing=()
-    for key in "${REQUIRED_KEYS[@]}"; do
-        grep -qE "^${key}=" .env || missing+=("$key")
-    done
-    if [ "${#missing[@]}" -gt 0 ]; then
-        warn "key(s) absent from .env, compose will pass them as empty: ${missing[*]}"
-    fi
-
-    # A registry the UI cannot reach is the number one cause of an empty page.
+    # Since compose passes .env as a file, a key left out simply keeps its default --
+    # only an empty REGISTRY_URL is fatal, and that is the number one cause of a UI
+    # that renders an error banner and nothing else.
     [ -n "$(env_value REGISTRY_URL)" ] || fail "REGISTRY_URL is empty in .env."
 
     case "$(env_value DEBUG)" in
         [Tt]rue) warn "DEBUG=True: tracebacks are served to visitors, do not leave this on a shared host" ;;
     esac
     case "$(env_value SECRET_KEY)" in
-        ""|iamsecret|django-insecure-*) warn "SECRET_KEY is a default/example value: sessions can be forged" ;;
+        ""|change-me|iamsecret|django-insecure-*)
+            warn "SECRET_KEY is a default/example value: the admin session cookie can be forged" ;;
     esac
     # HTTPS or a non-localhost hostname makes Django reject the admin login POST
     # without this, with a 403 that says nothing useful.
