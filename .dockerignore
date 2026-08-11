@@ -1,0 +1,26 @@
+# The Dockerfile does `COPY . .`, so everything not listed here lands in the image
+# layer -- including secrets, which stay readable in the layer even if a later step
+# deletes them.
+.env
+.env_*
+.git
+.gitignore
+.gitattributes
+.idea
+.claude
+__pycache__
+**/__pycache__
+*.pyc
+*.sqlite3
+db.sqlite3
+# Rebuilt by collectstatic during the build; copying a host-built copy in would
+# shadow it with stale assets.
+staticfiles/
+.ruff_cache/
+.venv
+venv
+CLAUDE.md
+README.md
+LICENSE
+deploy.sh
+docker-compose.yml
