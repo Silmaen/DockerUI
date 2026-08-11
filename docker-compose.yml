@@ -6,18 +6,18 @@ services:
     mem_limit: 512m
     ports:
       - "${PORT:-8000}:8000"
-    environment:
-      # registry settings
-      - REGISTRY_URL=${REGISTRY_URL}
-      - REGISTRY_TYPE=${REGISTRY_TYPE}
-      - REGISTRY_REPO=${REGISTRY_REPO}
-      - REGISTRY_SSL_VERIFY=${REGISTRY_SSL_VERIFY}
-      # application settings
-      - DEBUG=${DEBUG}
-      - SECRET_KEY=${SECRET_KEY}
-      - CSRF_TRUSTED_ORIGINS=${CSRF_TRUSTED_ORIGINS}
-      # Authentication credentials
-      - REGISTRY_USERNAME=${REGISTRY_USERNAME}
-      - REGISTRY_PASSWORD=${REGISTRY_PASSWORD}
-      # Admin mode
-      - ADMIN_PASSWORD=${ADMIN_PASSWORD}
+    # Passed as a file rather than an explicit `environment:` list. Enumerating the
+    # variables meant a key missing from .env reached the container as an *empty
+    # string*, which overrode the Django default instead of falling back to it -- an
+    # absent REGISTRY_URL pointed the app at nothing. It also means a new setting no
+    # longer has to be declared in two places.
+    env_file:
+      - .env
+    # The image declares a HEALTHCHECK, so `docker compose ps` reports whether
+    # gunicorn actually answers; without a limit the json-file log grows until the
+    # disk says stop.
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
