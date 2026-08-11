@@ -187,7 +187,7 @@ def get_tag_counts_for(repositories):
     """Tag counts for the given repositories, keyed by name."""
     repositories = list(repositories)
     counts = map_concurrently(get_tag_count, repositories)
-    return dict(zip(repositories, counts))
+    return dict(zip(repositories, counts, strict=True))
 
 
 # The catalog-wide aggregate is expensive to rebuild and rarely changes, so it keeps

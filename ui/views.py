@@ -8,22 +8,21 @@ import requests
 from django.conf import settings
 from django.contrib import messages
 from django.core.cache import cache
-from django.http import JsonResponse, HttpResponseForbidden
-from django.shortcuts import render, redirect
+from django.http import HttpResponseForbidden, JsonResponse
+from django.shortcuts import redirect, render
+from django.utils.text import slugify
 from django.views.decorators.http import require_GET, require_POST
 
-from django.utils.text import slugify
-
-from .formating import format_time_difference, format_size
+from .formating import format_size, format_time_difference
 from .registry_client import (
-    get_registry_data,
-    get_all_tag_counts,
-    get_tag_counts_for,
-    map_concurrently,
-    get_manifest_digest,
     delete_manifest,
-    invalidate_cache,
+    get_all_tag_counts,
+    get_manifest_digest,
+    get_registry_data,
     get_repo_stats,
+    get_tag_counts_for,
+    invalidate_cache,
+    map_concurrently,
 )
 
 logger = logging.getLogger(__name__)
@@ -100,7 +99,9 @@ def repository_list(request):
             ordered_namespaces[k] = compute_counts_and_sort(namespaces[k], slugify(k))
 
     if "<default>" in namespaces:
-        ordered_namespaces["<default>"] = compute_counts_and_sort(namespaces["<default>"], slugify("<default>"))
+        ordered_namespaces["<default>"] = compute_counts_and_sort(
+            namespaces["<default>"], slugify("<default>")
+        )
 
     context = {"namespaces": ordered_namespaces, "error_message": error_message}
     return render(request, "ui/repository_list.html", context)
@@ -255,7 +256,9 @@ def get_tag_details_map(repository, tags):
             return dict(_TAG_DETAIL_ERROR)
 
     tags = list(tags)
-    return dict(zip(tags, map_concurrently(detail, tags)))
+    # strict: map_concurrently returns one result per input, and a silent mismatch
+    # here would shift every row's details onto the wrong tag.
+    return dict(zip(tags, map_concurrently(detail, tags), strict=True))
 
 
 @require_GET
@@ -439,7 +442,13 @@ def delete_tag(request, repository):
     except requests.exceptions.HTTPError as e:
         if e.response is not None and e.response.status_code == 405:
             return JsonResponse(
-                {"success": False, "error": "Delete is not enabled on the registry. Set REGISTRY_STORAGE_DELETE_ENABLED=true."},
+                {
+                    "success": False,
+                    "error": (
+                        "Delete is not enabled on the registry. "
+                        "Set REGISTRY_STORAGE_DELETE_ENABLED=true."
+                    ),
+                },
                 status=405,
             )
         logger.error(f"Error deleting tag {tag} from {repository}: {e}")
@@ -482,4 +491,7 @@ def delete_repository(request, repository):
     invalidate_cache(repository, tags=tags)
 
     status_code = 207 if errors and deleted else (200 if not errors else 500)
-    return JsonResponse({"success": len(errors) == 0, "deleted": deleted, "errors": errors}, status=status_code)
+    return JsonResponse(
+        {"success": len(errors) == 0, "deleted": deleted, "errors": errors},
+        status=status_code,
+    )

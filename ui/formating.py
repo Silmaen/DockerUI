@@ -1,9 +1,9 @@
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 
 def format_time_difference(datetime_obj):
     """Format time difference between datetime_obj and now in a human-readable format"""
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     diff = now - datetime_obj
 
     if diff.days > 365:
