@@ -15,6 +15,7 @@
 #   ./deploy.sh stop            stop everything
 #   ./deploy.sh restart         restart without rebuilding
 #   ./deploy.sh tests [app]     run the tests
+#   ./deploy.sh lint [--fix]    ruff, in its own container
 #   ./deploy.sh shell           Django shell inside the container
 #   ./deploy.sh sh              interactive shell inside the container
 #   ./deploy.sh help            this help
@@ -31,6 +32,9 @@ cd "$ROOT"
 
 SERVICE=registry-ui
 MANAGE=(python /app/manage.py)
+# Pinned: a linter that changes its mind on its own turns a green tree red without
+# a single line of code moving.
+RUFF_IMAGE=ghcr.io/astral-sh/ruff:0.14.4
 HEALTH_TIMEOUT=90
 # Probed from inside the container: the image always ships python, the host may
 # ship neither curl nor wget, and this works even when the port is not published.
@@ -39,6 +43,7 @@ HEALTH_PATH=/ui/
 PULL=1
 TESTS=0
 DRY_RUN=0
+FIX=0
 
 # --- Output ------------------------------------------------------------------
 
@@ -252,6 +257,18 @@ run_tests() {
     ok "tests passed"
 }
 
+# ruff comes from its own published image rather than from the application image:
+# the linter has no business being installed next to the running server, and this
+# keeps the runtime image free of development tooling. Configuration lives in
+# pyproject.toml.
+run_lint() {
+    local extra="${1:-}"
+    step "Lint${extra:+ ($extra)}"
+    run docker run --rm -v "$ROOT:/io" -w /io --user "$(id -u):$(id -g)" \
+        "$RUFF_IMAGE" check . ${extra:+"$extra"}
+    ok "lint clean"
+}
+
 start_services() {
     step "Starting the services"
     # --remove-orphans: a renamed service otherwise keeps its old container running
@@ -347,9 +364,10 @@ while [ $# -gt 0 ]; do
         --no-pull)  PULL=0 ;;
         --tests)    TESTS=1 ;;
         --dry-run)  DRY_RUN=1 ;;
+        --fix)      FIX=1 ;;
         -h|--help|help) usage; exit 0 ;;
         --check)    COMMAND="check" ;;
-        deploy|check|status|logs|stop|restart|tests|shell|sh)
+        deploy|check|status|logs|stop|restart|tests|lint|shell|sh)
             COMMAND="$1"
             if [ $# -gt 1 ] && [[ "$2" != -* ]]; then
                 ARGUMENT="$2"
@@ -369,6 +387,10 @@ case "$COMMAND" in
     stop)    step "Stopping"; docker compose down; ok "services stopped" ;;
     restart) step "Restarting"; docker compose restart; check_health; summary ;;
     tests)   check_tools; check_env; run_tests "$ARGUMENT" ;;
+    lint)
+        check_tools
+        if [ "$FIX" -eq 1 ]; then run_lint --fix; else run_lint; fi
+        ;;
     shell)   docker compose exec "$SERVICE" "${MANAGE[@]}" shell ;;
     sh)      docker compose exec "$SERVICE" bash ;;
 esac
