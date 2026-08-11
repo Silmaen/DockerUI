@@ -7,9 +7,9 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 DockerUI is a Django web application that provides a browser-based UI for Docker container registries. It supports both
 classic Docker Registry and JFrog Artifactory backends.
 
-There are no custom database models. SQLite holds Django internals only — and that database is created at **image build
-time**, so anything written to it at runtime (sessions, in practice) is discarded on the next rebuild. Registry data is
-never persisted: every page comes from a live HTTP call, cached in memory.
+**There is no database.** No models, no migrations, no `django.contrib.auth`, no `django.contrib.admin`: `DATABASES` is
+`{}`. The only server-side state is the admin flag, and it lives in a signed session cookie. Registry data is never
+persisted — every page comes from a live HTTP call, cached in a file-backed cache under `/tmp`.
 
 ## Development Commands
 
@@ -21,18 +21,20 @@ never persisted: every page comes from a live HTTP call, cached in memory.
 ./deploy.sh check            # is an update pending? exit 0 / 10 / 1
 ./deploy.sh logs|status|restart|stop
 ./deploy.sh tests [app]      # tests in a throwaway container
+./deploy.sh lint [--fix]     # ruff, in the pinned ruff image
 ./deploy.sh shell            # Django shell in the running container
+./deploy.sh sh               # interactive shell in the running container
 
-# Local (native) development
-pip install -r requirements.txt
+# Directly, when a container is not wanted
 python manage.py runserver
-python manage.py test
+python manage.py test --settings=DockerUI.settings_test
 python manage.py collectstatic   # required after CSS/JS changes for production
-python manage.py migrate
 ```
 
-`ui/tests.py` is still empty — `manage.py test` currently reports "NO TESTS RAN" and passes. Any test added is picked up
-by `./deploy.sh --tests`.
+Tests **must** run against `DockerUI.settings_test` (`./deploy.sh tests` does this). It swaps the manifest static-files
+storage for the plain one — otherwise every template render fails with "Missing staticfiles manifest entry" unless
+`collectstatic` happened to have run — uses an in-process cache, and points the registry at a hostname that resolves to
+nothing so an accidental real call fails loudly.
 
 ## Architecture
 
@@ -40,44 +42,60 @@ by `./deploy.sh --tests`.
 HTTP API
 
 The UI is deliberately front-loaded: the initial HTML carries only names, and every expensive value (tag counts, tag
-dates/sizes/architectures, per-repo storage) is fetched afterwards by JSON endpoints so a big registry does not stall
-the first paint.
+dates/sizes/architectures, per-repo storage) is fetched afterwards by JSON endpoints, which in turn fan out to the
+registry in parallel.
 
 ### Key Modules
 
-- **`DockerUI/settings.py`** — all registry configuration comes from environment variables. `ALLOWED_HOSTS` is `["*"]`;
-  `CSRF_TRUSTED_ORIGINS` is parsed from a comma-separated env var. No `CACHES` block, so Django's default per-process
-  `LocMemCache` is in use (see Constraints).
-- **`ui/registry_client.py`** — all registry API communication: session/auth setup, URL construction per registry type,
-  caching, manifest walking.
-  - `get_registry_data(endpoint)` — cached GET (300 s), returns `None` on 404, raises otherwise. Builds the URL inline,
-    with a special case for Artifactory `_catalog`.
-  - `_build_registry_url(endpoint)` — the same URL logic again, for the non-cached verbs.
-  - `get_tag_count` / `get_all_tag_counts(force_refresh)` — per-repo and catalog-wide counts (cached 3600 s).
+- **`DockerUI/settings.py`** — everything configurable comes from the environment, through the `env_flag()` /
+  `env_list()` helpers (an empty value counts as unset, so a variable present-but-empty falls back to the default).
+  Defines the file-backed `CACHES`, signed-cookie sessions, and the `TRUST_PROXY` switch that gates both
+  `SECURE_PROXY_SSL_HEADER` and whether `X-Forwarded-For` is believed.
+- **`DockerUI/settings_test.py`** — test overlay, see above.
+- **`ui/converters.py`** — `RepositoryConverter`, the URL converter every repository-carrying route uses. Its regex
+  requires each path component to start with an alphanumeric, which is what makes `.`, `..` and `%2e%2e`
+  unroutable. **This is a security control**: `requests` normalises `..` when preparing a URL, so a name like
+  `../../v2/_catalog` used to redirect a credentialed registry call outside the configured namespace, from an endpoint
+  that needs no authentication.
+- **`ui/registry_client.py`** — all registry API communication.
+  - `get_registry_session()` — one `requests.Session` per thread, cached and rebuilt only when the credentials or the
+    verify flag change. Not a fresh session per call: that defeated connection pooling and paid for a TLS handshake on
+    every request.
+  - `map_concurrently(func, items)` — the fan-out used by every multi-item call. Bounded by `REGISTRY_MAX_WORKERS`,
+    preserves input order (callers `zip()` against it with `strict=True`), and propagates exceptions, so `func` handles
+    its own failures when a partial result beats none.
+  - `check_endpoint(endpoint)` — second lock against traversal, on the sink rather than the route.
+  - `_build_registry_url(endpoint)` — the single place that knows what a registry URL looks like, per registry type.
+  - `get_registry_data(endpoint)` — cached GET. Uses a `_CACHE_MISS` sentinel so an empty payload is a hit, and caches
+    404s as `None`.
+  - `get_tag_count` (None on failure, never 0) / `get_tag_counts_for` / `get_all_tag_counts(force_refresh)`.
   - `get_manifest_digest` (HEAD) / `delete_manifest` (DELETE) — the mutating pair used by admin mode.
-  - `_collect_manifest_blobs` / `get_repo_stats` — recursive manifest-list walk summing unique blob sizes per repo,
-    deduplicated by digest (cached 300 s).
-  - `invalidate_cache(repository)` / `invalidate_repo_stats` — purge after a mutation.
+  - `_collect_manifest_blobs` / `get_repo_stats` — recursive manifest-list walk summing unique blob sizes per repo. Each
+    tag walks into its own dict and the dicts are merged afterwards: same deduplication, no lock.
+  - `invalidate_cache(repository, tags=())` — purge after a mutation. Pass the deleted tags, or their manifest entries
+    outlive them.
 - **`ui/views.py`** — page views: `repository_list` (recursive namespace nesting, `<default>` bucket sorted last),
-  `repository_detail` (tag names + `docker pull` base command), `registry_stats` (admin shell page), `admin_login` /
-  `admin_logout`. JSON endpoints: `get_tag_details`, `get_tag_counts`, `registry_stats_summary`,
-  `registry_stats_repo`. Mutations: `delete_tag`, `delete_repository` (both `@require_POST` + admin check; a registry
-  that refuses deletion answers 405 and that is surfaced verbatim).
+  `repository_detail`, `registry_stats`, `admin_login` / `admin_logout`. JSON endpoints: `get_tag_details`,
+  `get_tag_counts`, `registry_stats_summary`, `registry_stats_repo` — all of which answer **502** with a JSON body when
+  the registry is unreachable, rather than a bare 500. Mutations: `delete_tag`, `delete_repository`.
 - **`ui/formating.py`** — `format_time_difference()` and `format_size()`.
-- **`ui/context_processors.py`** — injects `app_version` (from the `VERSION` file), `is_admin` (session flag) and
-  `admin_enabled` (is `ADMIN_PASSWORD` set) into every template.
+- **`ui/context_processors.py`** — injects `app_version` (from the `VERSION` file), `is_admin` and `admin_enabled`.
 
 ### Admin mode
 
-Not Django auth. `ADMIN_PASSWORD` is compared to the posted password and, on success, `request.session["is_admin"]` is
-set; every admin view and endpoint re-checks that flag and returns `HttpResponseForbidden` otherwise. Empty
-`ADMIN_PASSWORD` disables the feature, and the templates hide every admin affordance. Django's own `/admin/` is mounted
-but has no models and no users — it is unused.
+Not Django auth. `ADMIN_PASSWORD` is compared with `hmac.compare_digest` and, on success,
+`request.session["is_admin"]` is set; every admin view re-checks that flag and returns `HttpResponseForbidden`
+otherwise. Failures are counted per client address in the cache (`admin_login_failures_<address>`) and the form locks
+after `ADMIN_LOGIN_MAX_ATTEMPTS`. Empty `ADMIN_PASSWORD` disables the feature and the templates hide every admin
+affordance.
+
+Because sessions are signed cookies, a test cannot assign to `self.client.session` — log in through the view instead
+(`AdminLoginTests`, `StatsSummaryTests` do this).
 
 ### URL Routes
 
-Order matters in `ui/urls.py`: repository names contain slashes, so `repository_detail` uses a greedy `re_path` and
-every more specific route (`tag-details/`, `delete-tag/`, `delete/`) must be declared before it.
+Order matters in `ui/urls.py`: `<repo:repository>` accepts slashes, so it also matches `foo/delete`, and every more
+specific route has to be declared before `repository_detail`.
 
 - `/` → permanent redirect to `/ui/`
 - `/ui/`, `/ui/repositories/` → repository list
@@ -90,56 +108,51 @@ every more specific route (`tag-details/`, `delete-tag/`, `delete/`) must be dec
 
 ### Frontend
 
-Vanilla JavaScript + Bootstrap 5.3 (loaded from the jsDelivr CDN, so the UI degrades on an air-gapped network). Static
-files in `ui/static/ui/`, templates in `ui/templates/ui/` over a `base.html` layout; `_namespace_level.html` includes
-itself to render the namespace tree.
+Vanilla JavaScript + Bootstrap 5.3, **served from `ui/static/ui/vendor/`, not a CDN** (see README for versions and how
+to upgrade them). Templates in `ui/templates/ui/` over a `base.html` layout; `_namespace_level.html` includes itself to
+render the namespace tree.
 
 `scripts.js` is a set of `init*()` functions, all called on `DOMContentLoaded`, each a no-op when its anchor element is
-absent: `initThemeToggle`, `initFolderStates` (localStorage), `initCopyButtons`, `initTagDetails` (one fetch per
-repository page, then client-side sort by date), `initAdminDelete` (modals + CSRF from the cookie), `initTagCounts`
-(batches of 10), `initAdminStats` (summary then per-repo fan-out, 4 concurrent).
+absent: `initThemeToggle`, `initFolderStates` (localStorage), `initCopyButtons`, `initTagDetails`, `initAdminDelete`
+(modals + CSRF from the cookie), `initTagCounts` (batches of 10; a `null` count means unreadable and renders as an
+error, not as "0 tags"), `initAdminStats` (summary then per-repo fan-out, 4 concurrent). Both scripts are `defer`red —
+the inline theme snippet in `<head>` is the only one that must run before paint.
 
 ### Deployment
 
-`docker compose` with a single `registry-ui` service, image built from `python:3.13-slim`, Gunicorn (2 workers,
-2 threads) on port 8000, WhiteNoise serving hashed static files. `migrate` and `collectstatic` run in the Dockerfile, so
-startup is immediate and the container needs no writable volume.
+`docker compose` with a single `registry-ui` service. Image from `python:3.13-slim`, gunicorn with 2 workers × 8 threads
+(the work is I/O, not CPU), running as the unprivileged `dockerui` user, with a `HEALTHCHECK` on `/ui/` and json-file
+log rotation. `collectstatic` runs in the Dockerfile; nothing else does.
 
-`deploy.sh` drives all of it and waits for `/ui/` to answer from inside the container before declaring success — that
-path returns 200 even when the registry itself is unreachable (the view renders an error banner), which is the intended
+`.dockerignore` matters: the Dockerfile does `COPY . .`, so anything not excluded — `.env` included — stays readable in
+an image layer.
+
+`deploy.sh` drives all of it and waits for `/ui/` to answer from inside the container before declaring success. That
+path returns 200 even when the registry is unreachable (the view renders an error banner), which is the intended
 signal: it checks the UI, not the registry.
 
-`.dockerignore` matters here: the Dockerfile does `COPY . .`, so anything not excluded — `.env` included — ends up
-readable in an image layer.
+`docker-compose.yml` hands `.env` to the container with `env_file` rather than an explicit `environment:` list — the
+list meant a key missing from `.env` arrived as an empty string and *overrode* the Django default instead of falling
+back to it.
 
 ## Environment Variables
 
-| Variable | Default | Purpose |
-|----------|---------|---------|
-| `REGISTRY_URL` | `http://registry:5000` | Registry server URL |
-| `REGISTRY_TYPE` | `classic` | `classic` or `artifactory` |
-| `REGISTRY_REPO` | (empty) | Namespace prefix / Artifactory repository key |
-| `REGISTRY_SSL_VERIFY` | `False` | SSL certificate verification |
-| `REGISTRY_USERNAME` | (empty) | Registry auth username |
-| `REGISTRY_PASSWORD` | (empty) | Registry auth password |
-| `SECRET_KEY` | dev default | Django secret key |
-| `DEBUG` | `False` | Django debug mode |
-| `PORT` | `8000` | Host port published by compose |
-| `CSRF_TRUSTED_ORIGINS` | (empty) | Comma-separated origins trusted for POSTs; required over HTTPS or a non-localhost host |
-| `ADMIN_PASSWORD` | (empty) | Enables admin mode; empty disables it |
+See README.md for the full tables (essentials, hardening, performance). The ones whose absence bites:
 
-`docker-compose.yml` lists these explicitly rather than using `env_file`, so a key missing from `.env` reaches the
-container as an empty string and *overrides* the Django default instead of falling back to it. `deploy.sh check_env`
-warns about missing keys for that reason.
+| Variable | Default | Why it matters |
+|----------|---------|----------------|
+| `REGISTRY_URL` | `http://registry:5000` | An empty value gets you an error banner and nothing else |
+| `SECRET_KEY` | dev default | Signs the admin session cookie; a known key means a forgeable admin session |
+| `CSRF_TRUSTED_ORIGINS` | (empty) | Required over HTTPS or a non-localhost host, or the admin login 403s |
+| `ADMIN_PASSWORD` | (empty) | Empty disables admin mode entirely |
+| `REGISTRY_MAX_WORKERS` | `8` | Parallel registry requests per page load; lower it if the registry complains |
 
-## Constraints worth knowing before optimizing
+## Conventions
 
-- **The cache is per worker process.** No `CACHES` setting means `LocMemCache`: each Gunicorn worker holds its own copy,
-  and its default `MAX_ENTRIES` is 300 with a cull of one third — a registry with many tags evicts manifest entries
-  while they are still being used. A shared or larger cache is the single highest-leverage change available.
-- **Registry calls are sequential.** `get_all_tag_counts`, `get_tag_details` and `get_repo_stats` loop over
-  repositories/tags one HTTP request at a time (the comment in `get_all_tag_counts` says threading was dropped as
-  unreliable). Latency scales linearly with catalog size.
-- **Only 4 requests can be served at once** (2 workers × 2 threads), and the stats page alone opens 4 concurrent
-  fetches; each of those holds a thread for the whole manifest walk.
-- Cache reads use `if cached_data:`, so a legitimately empty response is treated as a miss and refetched.
+- Lint with ruff (`./deploy.sh lint`), configured in `pyproject.toml`: line length 110, import sorting, pyupgrade and
+  bugbear on. Keep it clean; it is quick.
+- Tests are `SimpleTestCase` — there is no database to talk to. `ui/tests.py` fakes the registry with
+  `RecordingSession`, which answers from a dict of URL-suffix → payload and records the calls, so tests can assert on
+  how many requests were made.
+- Comments explain the *why*, especially where the obvious-looking version was wrong (see the notes on the URL
+  converter, the cache sentinel, and the per-tag blob dicts).
