@@ -21,8 +21,23 @@ def get_registry_session():
     return session
 
 
+def check_endpoint(endpoint):
+    """Refuse an endpoint that could escape the registry's API prefix.
+
+    `requests` resolves `..` when it prepares a URL, so a crafted repository name
+    is enough to point a credentialed call at any path on the registry host. The
+    URL converter in `converters.py` already rejects those names at the routing
+    layer; this is the second lock, on the sink itself, for endpoints assembled
+    from anywhere else.
+    """
+    for part in endpoint.split("/"):
+        if part in ("", ".", ".."):
+            raise ValueError(f"invalid registry endpoint: {endpoint!r}")
+
+
 def get_registry_data(endpoint):
     """Get data from Docker Registry API"""
+    check_endpoint(endpoint)
     cache_key = f"registry_{endpoint}"
     cached_data = cache.get(cache_key)
 
@@ -130,6 +145,7 @@ def get_all_tag_counts(force_refresh=False):
 
 def _build_registry_url(endpoint):
     """Build the full registry URL for a given endpoint."""
+    check_endpoint(endpoint)
     is_artifactory = settings.REGISTRY_TYPE.lower() == "artifactory"
     if is_artifactory:
         return f"{settings.REGISTRY_URL}/artifactory/api/docker/{settings.REGISTRY_REPO}/v2/{endpoint}"
