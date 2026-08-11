@@ -1,7 +1,11 @@
+from unittest import mock
+
+import requests
 from django.core.cache import cache
 from django.test import SimpleTestCase, override_settings
 from django.urls import Resolver404, resolve, reverse
 
+from . import registry_client, views
 from .registry_client import check_endpoint
 
 
@@ -142,3 +146,166 @@ class AdminGatingTests(SimpleTestCase):
             with self.subTest(url=url):
                 response = getattr(self.client, method)(url)
                 self.assertEqual(response.status_code, 403)
+
+
+class FakeResponse:
+    """Enough of a requests.Response for the registry client."""
+
+    def __init__(self, payload=None, status_code=200, headers=None):
+        self._payload = payload
+        self.status_code = status_code
+        self.headers = headers or {}
+
+    def json(self):
+        return self._payload
+
+    def raise_for_status(self):
+        if self.status_code >= 400:
+            raise requests.exceptions.HTTPError(f"{self.status_code}", response=self)
+
+
+class RecordingSession:
+    """A registry that answers from a dict and counts what it was asked."""
+
+    def __init__(self, responses):
+        self.responses = responses
+        self.calls = []
+
+    def get(self, url, **kwargs):
+        self.calls.append(url)
+        for suffix, payload in self.responses.items():
+            if url.endswith(suffix):
+                if payload is None:
+                    return FakeResponse(status_code=404)
+                return FakeResponse(payload)
+        return FakeResponse(status_code=404)
+
+
+class RegistryCacheTests(SimpleTestCase):
+    def setUp(self):
+        cache.clear()
+        self.addCleanup(cache.clear)
+
+    def _patched(self, responses):
+        session = RecordingSession(responses)
+        return session, mock.patch.object(
+            registry_client, "get_registry_session", return_value=session
+        )
+
+    def test_response_is_cached(self):
+        session, patch = self._patched({"/v2/_catalog": {"repositories": ["a"]}})
+        with patch:
+            self.assertEqual(registry_client.get_registry_data("_catalog"), {"repositories": ["a"]})
+            self.assertEqual(registry_client.get_registry_data("_catalog"), {"repositories": ["a"]})
+        self.assertEqual(len(session.calls), 1)
+
+    def test_empty_result_is_cached_too(self):
+        # `if cached_data:` treated an empty payload as a miss, so a repository
+        # with no tags was refetched on every single request.
+        session, patch = self._patched({"/tags/list": {}})
+        with patch:
+            for _ in range(3):
+                registry_client.get_registry_data("team/image/tags/list")
+        self.assertEqual(len(session.calls), 1)
+
+    def test_missing_resource_is_cached_as_none(self):
+        session, patch = self._patched({"/tags/list": None})
+        with patch:
+            self.assertIsNone(registry_client.get_registry_data("team/gone/tags/list"))
+            self.assertIsNone(registry_client.get_registry_data("team/gone/tags/list"))
+        self.assertEqual(len(session.calls), 1)
+
+    def test_invalidate_cache_drops_the_deleted_tag_manifest(self):
+        cache.set(registry_client.cache_key_for("team/image/manifests/v1"), {"layers": []})
+        cache.set(registry_client.cache_key_for("team/image/tags/list"), {"tags": ["v1"]})
+        registry_client.invalidate_cache("team/image", tags=["v1"])
+        # Both keys have to go: the manifest one used to survive, so a deleted tag
+        # kept reporting its size and date until its TTL ran out.
+        self.assertIsNone(cache.get(registry_client.cache_key_for("team/image/manifests/v1")))
+        self.assertIsNone(cache.get(registry_client.cache_key_for("team/image/tags/list")))
+
+
+@override_settings(REGISTRY_TYPE="classic", REGISTRY_REPO="", REGISTRY_URL="http://reg:5000")
+class RegistryUrlTests(SimpleTestCase):
+    def test_classic(self):
+        self.assertEqual(
+            registry_client._build_registry_url("_catalog"), "http://reg:5000/v2/_catalog"
+        )
+
+    @override_settings(REGISTRY_REPO="ns")
+    def test_classic_with_namespace(self):
+        self.assertEqual(
+            registry_client._build_registry_url("a/tags/list"), "http://reg:5000/v2/ns/a/tags/list"
+        )
+
+    @override_settings(REGISTRY_TYPE="artifactory", REGISTRY_REPO="docker-local")
+    def test_artifactory(self):
+        # The inlined copy in get_registry_data had dedicated branches for
+        # _catalog and /tags/list; they produced exactly these strings.
+        self.assertEqual(
+            registry_client._build_registry_url("_catalog"),
+            "http://reg:5000/artifactory/api/docker/docker-local/v2/_catalog",
+        )
+        self.assertEqual(
+            registry_client._build_registry_url("a/b/tags/list"),
+            "http://reg:5000/artifactory/api/docker/docker-local/v2/a/b/tags/list",
+        )
+
+
+class TagDetailTests(SimpleTestCase):
+    def setUp(self):
+        cache.clear()
+        self.addCleanup(cache.clear)
+
+    def test_missing_config_blob_does_not_break_the_row(self):
+        # `"created" in None` was a TypeError, and the caller turned it into a row
+        # that read "Error" everywhere with nothing in the logs to explain it.
+        responses = {
+            "/manifests/v1": {"config": {"digest": "sha256:cfg"}, "layers": [{"size": 42}]},
+            "/blobs/sha256:cfg": None,
+        }
+        session = RecordingSession(responses)
+        with mock.patch.object(registry_client, "get_registry_session", return_value=session):
+            detail = views._get_tag_detail("team/image", "v1")
+        self.assertEqual(detail["age"], "Unknown")
+        self.assertEqual(detail["size_bytes"], 42)
+        self.assertEqual(detail["architectures"], ["Unknown"])
+
+    def test_single_arch_detail(self):
+        responses = {
+            "/manifests/v1": {
+                "config": {"digest": "sha256:cfg"},
+                "layers": [{"size": 1024}, {"size": 1024}],
+            },
+            "/blobs/sha256:cfg": {"created": "2026-01-01T00:00:00Z", "architecture": "amd64"},
+        }
+        session = RecordingSession(responses)
+        with mock.patch.object(registry_client, "get_registry_session", return_value=session):
+            detail = views._get_tag_detail("team/image", "v1")
+        self.assertEqual(detail["architectures"], ["amd64"])
+        self.assertEqual(detail["size_bytes"], 2048)
+        self.assertEqual(detail["size"], "2.0 KB")
+
+
+class ErrorPropagationTests(SimpleTestCase):
+    """A registry that is down should say so, not 500."""
+
+    def setUp(self):
+        cache.clear()
+        self.addCleanup(cache.clear)
+
+    def test_tag_counts_reports_a_bad_gateway(self):
+        with mock.patch.object(
+            registry_client, "get_registry_session", side_effect=requests.exceptions.ConnectionError("down")
+        ):
+            response = self.client.get("/ui/tag-counts/")
+        self.assertEqual(response.status_code, 502)
+        self.assertIn("error", response.json())
+
+    def test_tag_details_reports_a_bad_gateway(self):
+        with mock.patch.object(
+            registry_client, "get_registry_session", side_effect=requests.exceptions.ConnectionError("down")
+        ):
+            response = self.client.get("/ui/repositories/team/image/tag-details/")
+        self.assertEqual(response.status_code, 502)
+        self.assertIn("error", response.json())
