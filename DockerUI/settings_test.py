@@ -27,6 +27,10 @@ CACHES = {
     }
 }
 
+# WhiteNoise warns on every run that STATIC_ROOT does not exist -- true, and
+# irrelevant: nothing under test serves a static file.
+MIDDLEWARE = [m for m in MIDDLEWARE if "whitenoise" not in m]  # noqa: F405
+
 # Signing has to be deterministic and independent of the deployment's key.
 SECRET_KEY = "dockerui-test-key"
 

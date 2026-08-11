@@ -18,7 +18,7 @@ from .formating import format_time_difference, format_size
 from .registry_client import (
     get_registry_data,
     get_all_tag_counts,
-    get_tag_count,
+    get_tag_counts_for,
     get_manifest_digest,
     delete_manifest,
     invalidate_cache,
@@ -120,15 +120,10 @@ def repository_detail(request, repository):
     if registry_url.endswith("/"):
         registry_url = registry_url[:-1]
 
-    registry_repo = getattr(settings, "REGISTRY_REPO", None)
-    registry_type = getattr(settings, "REGISTRY_TYPE", "standard")
-
-    if registry_repo and registry_type.lower() != "artifactory":
-        repo_path = f"{registry_repo}/{repository}"
-    elif registry_type.lower() == "artifactory" and registry_repo:
-        repo_path = f"{registry_repo}/{repository}"
-    else:
-        repo_path = repository
+    # Both registry types prefix the image with the namespace, so the three
+    # branches this used to have all produced the same two outcomes.
+    registry_repo = getattr(settings, "REGISTRY_REPO", "")
+    repo_path = f"{registry_repo}/{repository}" if registry_repo else repository
 
     pull_command_base = f"docker pull {registry_url}/{repo_path}"
 
@@ -194,10 +189,13 @@ def _get_tag_detail(repository, tag):
             config_data = get_registry_data(
                 f"{repository}/blobs/{manifest_data['config']['digest']}"
             )
-            if "created" in config_data:
-                created_date = config_data["created"]
-            if "architecture" in config_data:
-                architectures.append(config_data["architecture"])
+            # A config blob the registry no longer has returns None, and `"created"
+            # in None` is a TypeError -- caught upstream, which turned a missing
+            # blob into an unexplained "Error" on the whole row.
+            if config_data:
+                created_date = config_data.get("created")
+                if "architecture" in config_data:
+                    architectures.append(config_data["architecture"])
 
         if manifest_data and "layers" in manifest_data:
             for layer in manifest_data["layers"]:
@@ -217,7 +215,7 @@ def _get_tag_detail(repository, tag):
             )
             age = format_time_difference(created_datetime)
         except Exception as e:
-            print(f"Date parsing error: {e}, value: '{created_date}'")
+            logger.warning(f"Date parsing error: {e}, value: '{created_date}'")
 
     return {
         "created": created_date,
@@ -228,26 +226,47 @@ def _get_tag_detail(repository, tag):
     }
 
 
+_TAG_DETAIL_ERROR = {
+    "created": None,
+    "age": "Error",
+    "size": "Error",
+    "size_bytes": 0,
+    "architectures": ["Error"],
+}
+
+
+def get_tag_details_map(repository, tags):
+    """Details for every tag of a repository, keyed by tag.
+
+    One unreadable tag must not cost the whole table, so a failure is reported in
+    that tag's own entry.
+    """
+    details = {}
+    for tag in tags:
+        try:
+            details[tag] = _get_tag_detail(repository, tag)
+        except Exception as e:
+            logger.error(f"Error retrieving manifest for {repository}:{tag}: {e}")
+            details[tag] = dict(_TAG_DETAIL_ERROR)
+    return details
+
+
 @require_GET
 def get_tag_details(request, repository):
     """Return details (date, size, architectures) for all tags of a repository."""
-    tags_data = get_registry_data(f"{repository}/tags/list")
+    try:
+        tags_data = get_registry_data(f"{repository}/tags/list")
+    except requests.exceptions.RequestException as e:
+        # Used to escape as a bare 500 with an empty body, which the page reported
+        # as "Error" on every row without saying why.
+        logger.error(f"Cannot list tags of {repository}: {e}")
+        return JsonResponse({"error": str(e)}, status=502)
+
     tags = tags_data.get("tags", []) if tags_data else []
 
     result = {}
-    for tag in tags:
-        try:
-            result[tag] = _get_tag_detail(repository, tag)
-        except Exception as e:
-            print(f"Error retrieving manifest for {tag}: {e}")
-            result[tag] = {
-                "created": None,
-                "age": "Error",
-                "size": "Error",
-                "size_bytes": 0,
-                "architectures": ["Error"],
-            }
-
+    for tag, detail in get_tag_details_map(repository, tags).items():
+        result[tag] = detail
     return JsonResponse(result)
 
 
@@ -255,16 +274,16 @@ def get_tag_details(request, repository):
 def get_tag_counts(request):
     """Return tag counts for repositories. If ?repos=a,b,c is provided, count only those."""
     repos_param = request.GET.get("repos", "").strip()
-    if repos_param:
-        repos = [r.strip() for r in repos_param.split(",") if r.strip()]
-        tag_counts = {}
-        for repo in repos:
-            tag_counts[repo] = get_tag_count(repo)
-        return JsonResponse(tag_counts)
+    try:
+        if repos_param:
+            repos = [r.strip() for r in repos_param.split(",") if r.strip()]
+            return JsonResponse(get_tag_counts_for(repos))
 
-    force = request.GET.get("force", "").lower() == "true"
-    tag_counts = get_all_tag_counts(force_refresh=force)
-    return JsonResponse(tag_counts)
+        force = request.GET.get("force", "").lower() == "true"
+        return JsonResponse(get_all_tag_counts(force_refresh=force))
+    except requests.exceptions.RequestException as e:
+        logger.error(f"Cannot read tag counts: {e}")
+        return JsonResponse({"error": str(e)}, status=502)
 
 
 def _client_address(request):
@@ -406,7 +425,7 @@ def delete_tag(request, repository):
         if not digest:
             return JsonResponse({"success": False, "error": "Could not resolve digest."}, status=404)
         delete_manifest(repository, digest)
-        invalidate_cache(repository)
+        invalidate_cache(repository, tags=[tag])
         return JsonResponse({"success": True, "tag": tag})
     except requests.exceptions.HTTPError as e:
         if e.response is not None and e.response.status_code == 405:
@@ -451,7 +470,7 @@ def delete_repository(request, repository):
         except Exception as e:
             errors.append({"tag": tag, "error": str(e)})
 
-    invalidate_cache(repository)
+    invalidate_cache(repository, tags=tags)
 
     status_code = 207 if errors and deleted else (200 if not errors else 500)
     return JsonResponse({"success": len(errors) == 0, "deleted": deleted, "errors": errors}, status=status_code)

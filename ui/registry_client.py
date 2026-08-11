@@ -43,64 +43,76 @@ def check_endpoint(endpoint):
             raise ValueError(f"invalid registry endpoint: {endpoint!r}")
 
 
-def get_registry_data(endpoint):
-    """Get data from Docker Registry API"""
-    check_endpoint(endpoint)
-    cache_key = f"registry_{endpoint}"
-    cached_data = cache.get(cache_key)
+def _build_registry_url(endpoint):
+    """Build the full registry URL for an endpoint, whatever the registry type.
 
-    if cached_data:
+    This used to exist twice: `get_registry_data` inlined its own copy with extra
+    branches for `_catalog` and `/tags/list`, both of which produced exactly the
+    string the general case produces. The duplicate is gone -- one place decides
+    what a registry URL looks like.
+    """
+    check_endpoint(endpoint)
+    if settings.REGISTRY_TYPE.lower() == "artifactory":
+        return f"{settings.REGISTRY_URL}/artifactory/api/docker/{settings.REGISTRY_REPO}/v2/{endpoint}"
+    elif settings.REGISTRY_REPO:
+        return f"{settings.REGISTRY_URL}/v2/{settings.REGISTRY_REPO}/{endpoint}"
+    else:
+        return f"{settings.REGISTRY_URL}/v2/{endpoint}"
+
+
+# Distinguishes "not in the cache" from "cached, and the value is None" -- a 404 is
+# a legitimate answer worth remembering, and `cache.get(key)` alone cannot tell the
+# two apart.
+_CACHE_MISS = object()
+
+# Every manifest media type this UI knows how to read, plus plain JSON for the
+# catalog and blob endpoints.
+_ACCEPT_HEADER = ", ".join(
+    (
+        "application/vnd.docker.distribution.manifest.list.v2+json",
+        "application/vnd.docker.distribution.manifest.v2+json",
+        "application/vnd.docker.distribution.manifest.v1+json",
+        "application/vnd.oci.image.manifest.v1+json",
+        "application/vnd.oci.image.index.v1+json",
+        "application/json",
+    )
+)
+
+
+def cache_key_for(endpoint):
+    """The cache key holding the response for `endpoint`."""
+    return f"registry_{endpoint}"
+
+
+def get_registry_data(endpoint):
+    """Get data from Docker Registry API, cached. Returns None for a missing resource."""
+    check_endpoint(endpoint)
+    cache_key = cache_key_for(endpoint)
+    cached_data = cache.get(cache_key, _CACHE_MISS)
+
+    # `if cached_data:` here used to treat an empty-but-valid response -- an image
+    # with no tags, most commonly -- as a miss, and refetched it every single time.
+    if cached_data is not _CACHE_MISS:
         return cached_data
 
     session = get_registry_session()
+    url = _build_registry_url(endpoint)
 
-    # Determine if we're using Artifactory based on URL
-    is_artifactory = settings.REGISTRY_TYPE.lower() == "artifactory"
-
-    # Construct URL based on registry type
-    if is_artifactory:
-        # Artifactory format
-        if endpoint == "_catalog":
-            url = f"{settings.REGISTRY_URL}/artifactory/api/docker/{settings.REGISTRY_REPO}/v2/_catalog"
-        elif "/tags/list" in endpoint:
-            repository = endpoint.split("/tags/list")[0]
-            url = f"{settings.REGISTRY_URL}/artifactory/api/docker/{settings.REGISTRY_REPO}/v2/{repository}/tags/list"
-        else:
-            url = f"{settings.REGISTRY_URL}/artifactory/api/docker/{settings.REGISTRY_REPO}/v2/{endpoint}"
-    else:
-        # Standard Docker registry format
-        if settings.REGISTRY_REPO:
-            url = f"{settings.REGISTRY_URL}/v2/{settings.REGISTRY_REPO}/{endpoint}"
-        else:
-            url = f"{settings.REGISTRY_URL}/v2/{endpoint}"
-
-    # Add Accept headers for both manifest types
-    headers = {
-        "Accept": (
-            "application/vnd.docker.distribution.manifest.list.v2+json, "
-            "application/vnd.docker.distribution.manifest.v2+json, "
-            "application/vnd.docker.distribution.manifest.v1+json, "
-            "application/vnd.oci.image.manifest.v1+json, "
-            "application/vnd.oci.image.index.v1+json, "
-            "application/json"
-        )
-    }
-
-    # logger.debug(f"Requesting {url}")
-
-    response = session.get(url, headers=headers, timeout=30)
+    response = session.get(url, headers={"Accept": _ACCEPT_HEADER}, timeout=30)
     if response.status_code == 404:
         logger.warning(f"Resource not found: {url}")
+        # Remembered as well: a repository listed in the catalog but already
+        # garbage-collected would otherwise be re-requested on every page load.
+        cache.set(cache_key, None, settings.REGISTRY_CACHE_TTL)
         return None
 
     response.raise_for_status()
 
     result = response.json()
-    cache.set(cache_key, result, 300)
+    cache.set(cache_key, result, settings.REGISTRY_CACHE_TTL)
     return result
 
 
-# ui/registry_client.py - Ajoutez cette fonction
 def get_tag_count(repository):
     """Get tag count for a single repository"""
     try:
@@ -109,6 +121,11 @@ def get_tag_count(repository):
     except Exception as e:
         logger.error(f"Error getting tags for {repository}: {str(e)}")
         return 0
+
+
+def get_tag_counts_for(repositories):
+    """Tag counts for the given repositories, keyed by name."""
+    return {repo: get_tag_count(repo) for repo in repositories}
 
 
 def get_all_tag_counts(force_refresh=False):
@@ -151,31 +168,11 @@ def get_all_tag_counts(force_refresh=False):
     return tag_counts
 
 
-def _build_registry_url(endpoint):
-    """Build the full registry URL for a given endpoint."""
-    check_endpoint(endpoint)
-    is_artifactory = settings.REGISTRY_TYPE.lower() == "artifactory"
-    if is_artifactory:
-        return f"{settings.REGISTRY_URL}/artifactory/api/docker/{settings.REGISTRY_REPO}/v2/{endpoint}"
-    elif settings.REGISTRY_REPO:
-        return f"{settings.REGISTRY_URL}/v2/{settings.REGISTRY_REPO}/{endpoint}"
-    else:
-        return f"{settings.REGISTRY_URL}/v2/{endpoint}"
-
-
 def get_manifest_digest(repository, tag):
     """Get the Docker-Content-Digest for a tag via HEAD request."""
     session = get_registry_session()
     url = _build_registry_url(f"{repository}/manifests/{tag}")
-    headers = {
-        "Accept": (
-            "application/vnd.docker.distribution.manifest.list.v2+json, "
-            "application/vnd.docker.distribution.manifest.v2+json, "
-            "application/vnd.oci.image.manifest.v1+json, "
-            "application/vnd.oci.image.index.v1+json"
-        )
-    }
-    response = session.head(url, headers=headers, timeout=30)
+    response = session.head(url, headers={"Accept": _ACCEPT_HEADER}, timeout=30)
     response.raise_for_status()
     return response.headers.get("Docker-Content-Digest")
 
@@ -189,12 +186,22 @@ def delete_manifest(repository, digest):
     return True
 
 
-def invalidate_cache(repository):
-    """Purge cache keys after a mutation."""
-    cache.delete(f"registry_{repository}/tags/list")
-    cache.delete("registry__catalog")
-    cache.delete("repository_tag_counts")
-    cache.delete(f"registry_repo_stats_{repository}")
+def invalidate_cache(repository, tags=()):
+    """Purge cache keys after a mutation.
+
+    `tags` are the tags that were just deleted. Without them the manifest entries
+    survive -- `registry_<repo>/manifests/<tag>` is a separate key from the tag
+    list -- and a deleted tag kept reporting its size and creation date for the
+    rest of the TTL.
+    """
+    keys = [
+        cache_key_for(f"{repository}/tags/list"),
+        cache_key_for("_catalog"),
+        "repository_tag_counts",
+        stats_cache_key(repository),
+    ]
+    keys += [cache_key_for(f"{repository}/manifests/{tag}") for tag in tags]
+    cache.delete_many(keys)
 
 
 def _collect_manifest_blobs(repository, reference, seen):
@@ -236,13 +243,18 @@ def _collect_manifest_blobs(repository, reference, seen):
     return added
 
 
+def stats_cache_key(repository):
+    """The cache key holding the computed stats for `repository`."""
+    return f"registry_repo_stats_{repository}"
+
+
 def get_repo_stats(repository, force_refresh=False):
-    """Return per-repo stats: {tags, size, blobs}. Cached for 5 minutes.
+    """Return per-repo stats: {tags, size, blobs}. Cached for REGISTRY_CACHE_TTL.
 
     `size` is the sum of unique blob sizes within this repo (deduped by digest).
     `blobs` is the unique blob digest count.
     """
-    cache_key = f"registry_repo_stats_{repository}"
+    cache_key = stats_cache_key(repository)
     if not force_refresh:
         cached = cache.get(cache_key)
         if cached is not None:
