@@ -14,9 +14,10 @@ ENV PYTHONDONTWRITEBYTECODE=1
 ENV PYTHONUNBUFFERED=1
 ENV PYTHONOPTIMIZE=1
 
-# Run migrations and collect static files
-RUN python manage.py migrate
-RUN python manage.py collectstatic
+# Collect static files. There is no `migrate` step: the project has no models and
+# no database, so it had nothing to do beyond baking a throwaway SQLite file into
+# the image.
+RUN python manage.py collectstatic --noinput --clear
 
 # Expose port
 EXPOSE 8000
