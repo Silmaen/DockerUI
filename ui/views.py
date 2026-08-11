@@ -19,6 +19,7 @@ from .registry_client import (
     get_registry_data,
     get_all_tag_counts,
     get_tag_counts_for,
+    map_concurrently,
     get_manifest_digest,
     delete_manifest,
     invalidate_cache,
@@ -238,17 +239,23 @@ _TAG_DETAIL_ERROR = {
 def get_tag_details_map(repository, tags):
     """Details for every tag of a repository, keyed by tag.
 
+    Fetched in parallel: each tag costs a manifest call plus a config blob call --
+    two or three round trips -- and a repository with thirty tags used to spend all
+    of them one after the other while the table sat on its loading spinners.
+
     One unreadable tag must not cost the whole table, so a failure is reported in
     that tag's own entry.
     """
-    details = {}
-    for tag in tags:
+
+    def detail(tag):
         try:
-            details[tag] = _get_tag_detail(repository, tag)
+            return _get_tag_detail(repository, tag)
         except Exception as e:
             logger.error(f"Error retrieving manifest for {repository}:{tag}: {e}")
-            details[tag] = dict(_TAG_DETAIL_ERROR)
-    return details
+            return dict(_TAG_DETAIL_ERROR)
+
+    tags = list(tags)
+    return dict(zip(tags, map_concurrently(detail, tags)))
 
 
 @require_GET
@@ -264,10 +271,7 @@ def get_tag_details(request, repository):
 
     tags = tags_data.get("tags", []) if tags_data else []
 
-    result = {}
-    for tag, detail in get_tag_details_map(repository, tags).items():
-        result[tag] = detail
-    return JsonResponse(result)
+    return JsonResponse(get_tag_details_map(repository, tags))
 
 
 @require_GET

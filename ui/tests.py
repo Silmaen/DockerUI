@@ -1,3 +1,5 @@
+import threading
+import time
 from unittest import mock
 
 import requests
@@ -309,3 +311,80 @@ class ErrorPropagationTests(SimpleTestCase):
             response = self.client.get("/ui/repositories/team/image/tag-details/")
         self.assertEqual(response.status_code, 502)
         self.assertIn("error", response.json())
+
+
+class ConcurrencyTests(SimpleTestCase):
+    """The registry fan-out has to stay ordered, bounded, and failure-tolerant."""
+
+    def setUp(self):
+        cache.clear()
+        self.addCleanup(cache.clear)
+
+    @override_settings(REGISTRY_MAX_WORKERS=4)
+    def test_results_keep_the_input_order(self):
+        # dict(zip(items, results)) upstream depends on it.
+        items = list(range(20))
+        self.assertEqual(registry_client.map_concurrently(lambda i: i * 2, items),
+                         [i * 2 for i in items])
+
+    @override_settings(REGISTRY_MAX_WORKERS=4)
+    def test_pool_size_is_capped(self):
+        seen = set()
+        lock = threading.Lock()
+
+        def record(_):
+            with lock:
+                seen.add(threading.current_thread().name)
+            time.sleep(0.01)
+
+        registry_client.map_concurrently(record, range(40))
+        self.assertLessEqual(len(seen), 4)
+
+    def test_empty_input_starts_no_threads(self):
+        self.assertEqual(registry_client.map_concurrently(lambda i: 1 / 0, []), [])
+
+    @override_settings(REGISTRY_MAX_WORKERS=1)
+    def test_single_worker_runs_inline(self):
+        self.assertEqual(registry_client.map_concurrently(str, [1, 2]), ["1", "2"])
+
+    @override_settings(REGISTRY_MAX_WORKERS=4)
+    def test_one_broken_tag_does_not_sink_the_others(self):
+        responses = {
+            "/manifests/ok": {"config": {"digest": "sha256:cfg"}, "layers": [{"size": 10}]},
+            "/blobs/sha256:cfg": {"created": "2026-01-01T00:00:00Z", "architecture": "amd64"},
+        }
+        session = RecordingSession(responses)  # "/manifests/bad" falls through to 404
+        with mock.patch.object(registry_client, "get_registry_session", return_value=session):
+            details = views.get_tag_details_map("team/image", ["ok", "bad"])
+        self.assertEqual(details["ok"]["architectures"], ["amd64"])
+        self.assertEqual(details["bad"]["architectures"], ["Unknown"])
+
+    @override_settings(REGISTRY_MAX_WORKERS=4)
+    def test_repo_stats_dedupes_blobs_shared_between_tags(self):
+        # Two tags sharing a layer: the size is counted once, which is the property
+        # the per-tag dicts have to preserve now that they are merged afterwards.
+        shared = {"config": {"digest": "sha256:cfg"}, "layers": [{"digest": "sha256:layer", "size": 100}]}
+        session = RecordingSession({
+            "/tags/list": {"tags": ["v1", "v2"]},
+            "/manifests/v1": shared,
+            "/manifests/v2": shared,
+        })
+        with mock.patch.object(registry_client, "get_registry_session", return_value=session):
+            stats = registry_client.get_repo_stats("team/image")
+        self.assertEqual(stats["tags"], 2)
+        self.assertEqual(stats["blobs"], 2)  # one config + one layer
+        self.assertEqual(stats["size"], 100)
+        self.assertEqual(stats["errors"], [])
+
+    @override_settings(REGISTRY_MAX_WORKERS=4)
+    def test_sessions_are_reused_within_a_thread(self):
+        first = registry_client.get_registry_session()
+        self.assertIs(first, registry_client.get_registry_session())
+
+    @override_settings(REGISTRY_USERNAME="bob", REGISTRY_PASSWORD="pw")
+    def test_session_is_rebuilt_when_credentials_change(self):
+        registry_client._local.__dict__.clear()
+        with_auth = registry_client.get_registry_session()
+        self.assertEqual(with_auth.auth, ("bob", "pw"))
+        with override_settings(REGISTRY_USERNAME="", REGISTRY_PASSWORD=""):
+            self.assertIsNone(registry_client.get_registry_session().auth)
