@@ -1,5 +1,7 @@
 # registry_client.py
 import logging
+import threading
+from concurrent.futures import ThreadPoolExecutor
 
 import requests
 import urllib3
@@ -16,17 +18,70 @@ if not settings.REGISTRY_SSL_VERIFY:
     urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 
+# One session per thread. A fresh Session per call meant a fresh connection pool per
+# call, so every request paid for a TCP handshake and a full TLS negotiation --
+# which, against an HTTPS registry, dominated the time spent listing a catalog.
+# requests.Session is not documented as thread-safe, hence thread-local rather than
+# one global instance.
+_local = threading.local()
+
+
+def _session_signature():
+    """What a cached session depends on: rebuild it when any of this changes."""
+    return (
+        settings.REGISTRY_SSL_VERIFY,
+        settings.REGISTRY_USERNAME,
+        settings.REGISTRY_PASSWORD,
+    )
+
+
 def get_registry_session():
     """
-    Create and configure a session for interacting with the Docker Registry API.
+    Return this thread's session for interacting with the Docker Registry API.
     """
+    signature = _session_signature()
+    cached = getattr(_local, "session", None)
+    if cached is not None and cached[0] == signature:
+        return cached[1]
+
     session = requests.Session()
     session.verify = settings.REGISTRY_SSL_VERIFY
 
     if settings.REGISTRY_USERNAME and settings.REGISTRY_PASSWORD:
         session.auth = (settings.REGISTRY_USERNAME, settings.REGISTRY_PASSWORD)
 
+    # Enough connections to keep a full worker pool busy on one host.
+    adapter = requests.adapters.HTTPAdapter(
+        pool_connections=4,
+        pool_maxsize=max(settings.REGISTRY_MAX_WORKERS, 8),
+    )
+    session.mount("http://", adapter)
+    session.mount("https://", adapter)
+
+    _local.session = (signature, session)
     return session
+
+
+def map_concurrently(func, items):
+    """Apply `func` to every item, in parallel, preserving order.
+
+    Every caller of this is waiting on a registry over the network, one request at
+    a time until now: a catalog of 60 repositories meant 60 sequential round trips
+    before the page could answer. The pool is capped by REGISTRY_MAX_WORKERS, which
+    is about how much traffic the registry should be asked to take at once -- there
+    is no CPU work here to speak of.
+
+    Exceptions propagate, so `func` is expected to deal with its own failures when a
+    partial result is better than none.
+    """
+    items = list(items)
+    if not items:
+        return []
+    workers = min(settings.REGISTRY_MAX_WORKERS, len(items))
+    if workers <= 1:
+        return [func(item) for item in items]
+    with ThreadPoolExecutor(max_workers=workers, thread_name_prefix="registry") as pool:
+        return list(pool.map(func, items))
 
 
 def check_endpoint(endpoint):
@@ -125,45 +180,32 @@ def get_tag_count(repository):
 
 def get_tag_counts_for(repositories):
     """Tag counts for the given repositories, keyed by name."""
-    return {repo: get_tag_count(repo) for repo in repositories}
+    repositories = list(repositories)
+    counts = map_concurrently(get_tag_count, repositories)
+    return dict(zip(repositories, counts))
+
+
+# The catalog-wide aggregate is expensive to rebuild and rarely changes, so it keeps
+# a longer life than a single registry response.
+TAG_COUNTS_CACHE_KEY = "repository_tag_counts"
+TAG_COUNTS_TTL = 3600
 
 
 def get_all_tag_counts(force_refresh=False):
-    """Get tag counts for all repositories with better error handling and logging"""
+    """Tag counts for every repository in the catalog, keyed by name."""
+    if not force_refresh:
+        tag_counts = cache.get(TAG_COUNTS_CACHE_KEY)
+        if tag_counts is not None:
+            return tag_counts
 
-    # Check cache first
-    tag_counts = cache.get("repository_tag_counts")
-    if tag_counts is not None and not force_refresh:
-        logger.debug(f"Using cached tag counts: {tag_counts}")
-        return tag_counts
-
-    logger.info("Refreshing repository tag counts")
-    tag_counts = {}
-
-    # Get all repositories
     data = get_registry_data("_catalog")
     repositories = data.get("repositories", []) if data else []
+    logger.info(f"Refreshing tag counts for {len(repositories)} repositories")
 
-    # Process all repositories synchronously (more reliable than threading)
-    for repo in repositories:
-        try:
-            logger.debug(f"Fetching tags for repo: {repo}")
-            tags_data = get_registry_data(f"{repo}/tags/list")
+    tag_counts = get_tag_counts_for(repositories)
 
-            if tags_data and "tags" in tags_data:
-                tag_counts[repo] = len(tags_data["tags"])
-                logger.debug(f"Found {tag_counts[repo]} tags for {repo}")
-            else:
-                logger.warning(f"No tags found for {repo}")
-                tag_counts[repo] = 0
-
-        except Exception as e:
-            logger.error(f"Error getting tags for {repo}: {str(e)}")
-            tag_counts[repo] = 0
-
-    # Cache for 1 hour
-    cache.set("repository_tag_counts", tag_counts, 3600)
-    logger.info(f"Tag counts updated and cached: {tag_counts}")
+    cache.set(TAG_COUNTS_CACHE_KEY, tag_counts, TAG_COUNTS_TTL)
+    logger.info(f"Tag counts updated: {sum(tag_counts.values())} tags total")
 
     return tag_counts
 
@@ -263,14 +305,26 @@ def get_repo_stats(repository, force_refresh=False):
     tags_data = get_registry_data(f"{repository}/tags/list")
     tags = tags_data.get("tags", []) if tags_data else []
 
-    repo_blobs = {}
-    errors = []
-    for tag in tags:
+    def walk(tag):
+        """Blobs reachable from one tag, or the error that stopped the walk.
+
+        Each tag gets its own dict rather than sharing one: merging afterwards
+        gives the same deduplicated set without a lock around the shared one.
+        """
+        blobs = {}
         try:
-            _collect_manifest_blobs(repository, tag, repo_blobs)
+            _collect_manifest_blobs(repository, tag, blobs)
         except Exception as e:
             logger.error(f"Error reading manifest {repository}:{tag}: {e}")
-            errors.append({"tag": tag, "error": str(e)})
+            return blobs, {"tag": tag, "error": str(e)}
+        return blobs, None
+
+    repo_blobs = {}
+    errors = []
+    for blobs, error in map_concurrently(walk, tags):
+        repo_blobs.update(blobs)
+        if error:
+            errors.append(error)
 
     result = {
         "repository": repository,
